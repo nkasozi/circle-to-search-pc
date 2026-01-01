@@ -17,6 +17,7 @@ iced = { git = "https://github.com/iced-rs/iced.git", branch = "master", feature
 mouse_position = "0.1"
 rdev = { git = "https://github.com/rustdesk-org/rdev", branch = "master" }
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 tokio = { version = "1.47", default-features = false, features = ["time", "fs"] }
 tray-icon = "0.21"
 xcap = { version = "0.7", default-features = false }
@@ -29,9 +30,11 @@ rten = "0.24.0"
 rten-imageproc = "0.24.0"
 rten-tensor = "0.24.0"
 rusty-tesseract = "1.1.10"
-reqwest = "0.13.1"
+reqwest = { version = "0.13.1", features = ["multipart", "blocking"] }
 urlencoding = "2.1"
 open = "5.3"
+base64 = "0.22"
+dirs = "5.0"
 
 [profile.dev]
 opt-level = 0

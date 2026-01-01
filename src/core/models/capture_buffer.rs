@@ -1,5 +1,5 @@
 use iced::widget::image;
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 #[derive(Clone)]
 pub struct CaptureBuffer {

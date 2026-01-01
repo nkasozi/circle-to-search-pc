@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use image::DynamicImage;
-use rusty_tesseract::{Args, DataOutput, Image as TesseractImage};
+use rusty_tesseract::{Args, Image as TesseractImage};
 
 use crate::core::interfaces::adapters::OcrService;
 use crate::core::models::{DetectedText, DetectedWord, OcrResult};

@@ -5,6 +5,7 @@ mod core;
 mod global_constants;
 mod ports;
 mod presentation;
+mod user_settings;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -14,6 +15,7 @@ use iced::daemon;
 use iced::widget::{button, column, container, row, text};
 use iced::window::{self, Id};
 use mouse_position::mouse_position::Mouse;
+use base64::Engine;
 
 use core::models::{CaptureBuffer, OcrResult, ScreenRegion};
 use core::interfaces::adapters::OcrService;
@@ -55,6 +57,7 @@ struct CircleApp {
     windows: HashMap<Id, AppWindow>,
     main_window_id: Option<Id>,
     status: String,
+    settings: user_settings::UserSettings,
 }
 
 #[derive(Clone)]
@@ -72,6 +75,7 @@ enum Message {
     OcrServiceReady(Arc<dyn OcrService>),
     OcrServiceFailed(String),
     InteractiveOcrMessage(Id, presentation::InteractiveOcrMessage),
+    PerformImageSearch(Id, CaptureBuffer),
     #[allow(dead_code)]
     CloseWindow(Id),
     WindowClosed(Id),
@@ -94,6 +98,7 @@ impl std::fmt::Debug for Message {
             Message::OcrServiceReady(_) => write!(f, "OcrServiceReady"),
             Message::OcrServiceFailed(e) => write!(f, "OcrServiceFailed({})", e),
             Message::InteractiveOcrMessage(id, _) => write!(f, "InteractiveOcrMessage({:?})", id),
+            Message::PerformImageSearch(id, _) => write!(f, "PerformImageSearch({:?})", id),
             Message::CloseWindow(id) => write!(f, "CloseWindow({:?})", id),
             Message::WindowClosed(id) => write!(f, "WindowClosed({:?})", id),
             Message::Keyboard(event) => write!(f, "Keyboard({:?})", event),
@@ -105,6 +110,12 @@ impl CircleApp {
     fn new() -> (Self, Task<Message>) {
         log::info!("[APP] Initializing application");
 
+        let settings = user_settings::UserSettings::load()
+            .unwrap_or_else(|e| {
+                log::warn!("[APP] Failed to load settings: {}, using defaults", e);
+                user_settings::UserSettings::default()
+            });
+
         (
             Self {
                 screen_capturer: Arc::new(XcapScreenCapturer::initialize()),
@@ -113,6 +124,7 @@ impl CircleApp {
                 windows: HashMap::new(),
                 main_window_id: None,
                 status: "Initializing OCR service...".to_string(),
+                settings,
             },
             Task::batch(vec![
                 Task::done(Message::OpenMainWindow),
@@ -394,8 +406,109 @@ impl CircleApp {
                     presentation::InteractiveOcrMessage::Close => {
                         return window::close(window_id);
                     }
+                    presentation::InteractiveOcrMessage::SearchSelected => {
+                        if let Some(AppWindow::InteractiveOcr(view)) = self.windows.get(&window_id) {
+                            let buffer = view.get_capture_buffer().clone();
+                            return Task::done(Message::PerformImageSearch(window_id, buffer));
+                        }
+                    }
                     _ => {}
                 }
+            }
+            Message::PerformImageSearch(window_id, buffer) => {
+                log::info!("[APP] Starting image search for window {:?}", window_id);
+
+                let search_url_template = self.settings.image_search_url_template.clone();
+
+                return Task::batch(vec![
+                    Task::done(Message::InteractiveOcrMessage(
+                        window_id,
+                        presentation::InteractiveOcrMessage::SearchUploading
+                    )),
+                    Task::future(async move {
+                        let search_future = async {
+                            let temp_dir = std::env::temp_dir();
+                            let image_path = temp_dir.join("circle_to_search_image.png");
+
+                            log::debug!("[SEARCH] Saving image to temp: {:?}", image_path);
+
+                            let img = ::image::DynamicImage::ImageRgba8(
+                                ::image::RgbaImage::from_raw(
+                                    buffer.width,
+                                    buffer.height,
+                                    buffer.raw_data.clone(),
+                                )
+                                .ok_or_else(|| anyhow::anyhow!("Failed to create image from raw data"))?
+                            );
+
+                            img.save(&image_path)?;
+
+                            log::info!("[SEARCH] Uploading image to imgbb");
+
+                            let image_data = tokio::fs::read(&image_path).await?;
+                            let base64_image = base64::engine::general_purpose::STANDARD.encode(&image_data);
+
+                            let client = reqwest::Client::new();
+                            let form = reqwest::multipart::Form::new()
+                                .text("image", base64_image)
+                                .text("expiration", global_constants::IMGBB_EXPIRATION_SECONDS);
+
+                            let upload_url = format!("{}?key={}", global_constants::IMGBB_API_URL, global_constants::IMGBB_API_KEY);
+                            let response = client
+                                .post(&upload_url)
+                                .multipart(form)
+                                .send()
+                                .await?;
+
+                            let response_text = response.text().await?;
+                            log::debug!("[SEARCH] imgbb response: {}", response_text);
+
+                            let json: serde_json::Value = serde_json::from_str(&response_text)?;
+
+                            let image_url = json["data"]["url"]
+                                .as_str()
+                                .ok_or_else(|| anyhow::anyhow!("Failed to extract image URL from imgbb response"))?;
+
+                            let encoded_url = urlencoding::encode(image_url);
+                            let search_url = search_url_template.replace("{}", &encoded_url);
+
+                            log::info!("[SEARCH] Opening Google reverse image search");
+                            log::debug!("[SEARCH] Image URL: {}", image_url);
+                            log::debug!("[SEARCH] Search URL: {}", search_url);
+
+                            open::that(&search_url)?;
+
+                            Ok::<(), anyhow::Error>(())
+                        };
+
+                        let timeout_duration = std::time::Duration::from_secs(30);
+                        match tokio::time::timeout(timeout_duration, search_future).await {
+                            Ok(Ok(())) => {
+                                log::info!("[APP] Image search completed successfully");
+                                Message::InteractiveOcrMessage(
+                                    window_id,
+                                    presentation::InteractiveOcrMessage::SearchCompleted
+                                )
+                            }
+                            Ok(Err(e)) => {
+                                log::error!("[APP] Image search failed: {}", e);
+                                Message::InteractiveOcrMessage(
+                                    window_id,
+                                    presentation::InteractiveOcrMessage::SearchFailed(e.to_string())
+                                )
+                            }
+                            Err(_) => {
+                                log::error!("[APP] Image search timed out after 30 seconds");
+                                Message::InteractiveOcrMessage(
+                                    window_id,
+                                    presentation::InteractiveOcrMessage::SearchFailed(
+                                        "Search timed out after 30 seconds".to_string()
+                                    )
+                                )
+                            }
+                        }
+                    })
+                ]);
             }
             Message::CloseWindow(id) => {
                 log::info!("[APP] Closing window: {:?}", id);

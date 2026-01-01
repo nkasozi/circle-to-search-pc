@@ -1,7 +1,15 @@
-use iced::widget::{button, column, container, image, row, text, canvas, stack, tooltip};
+use iced::widget::{button, column, container, image, row, text, canvas, stack};
 use iced::{Alignment, Element, Length, Point, Rectangle, Size, Color};
 
 use crate::core::models::{CaptureBuffer, OcrResult};
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SearchState {
+    Idle,
+    UploadingImage,
+    Completed,
+    Failed(String),
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CharPosition {
@@ -11,21 +19,17 @@ pub struct CharPosition {
     pub character: char,
 }
 
-#[derive(Debug, Clone)]
-pub struct SelectionRange {
-    pub start: CharPosition,
-    pub end: CharPosition,
-}
-
 pub struct InteractiveOcrView {
     image_handle: iced::widget::image::Handle,
     image_width: u32,
     image_height: u32,
+    capture_buffer: CaptureBuffer,
     ocr_result: Option<OcrResult>,
     char_positions: Vec<CharPosition>,
     selected_chars: Vec<usize>,
     drag_start: Option<usize>,
-    tooltip_position: Option<Point>,
+    is_selecting: bool,
+    search_state: SearchState,
 }
 
 #[derive(Debug, Clone)]
@@ -36,6 +40,9 @@ pub enum InteractiveOcrMessage {
     EndDrag,
     CopySelected,
     SearchSelected,
+    SearchUploading,
+    SearchCompleted,
+    SearchFailed(String),
 }
 
 impl InteractiveOcrView {
@@ -50,12 +57,18 @@ impl InteractiveOcrView {
             image_handle: capture_buffer.image_handle.clone(),
             image_width: capture_buffer.width,
             image_height: capture_buffer.height,
+            capture_buffer,
             ocr_result: None,
             char_positions: Vec::new(),
             selected_chars: Vec::new(),
             drag_start: None,
-            tooltip_position: None,
+            is_selecting: false,
+            search_state: SearchState::Idle,
         }
+    }
+
+    pub fn get_capture_buffer(&self) -> &CaptureBuffer {
+        &self.capture_buffer
     }
 
     pub fn set_ocr_result(&mut self, result: OcrResult) {
@@ -63,7 +76,7 @@ impl InteractiveOcrView {
             "[INTERACTIVE_OCR] Setting OCR result with {} text blocks",
             result.text_blocks.len()
         );
-        
+
         self.char_positions = Self::calculate_char_positions(&result);
         log::info!("[INTERACTIVE_OCR] Calculated {} character positions", self.char_positions.len());
         self.ocr_result = Some(result);
@@ -71,15 +84,15 @@ impl InteractiveOcrView {
 
     fn calculate_char_positions(result: &OcrResult) -> Vec<CharPosition> {
         let mut positions = Vec::new();
-        
+
         for (word_idx, word) in result.text_blocks.iter().enumerate() {
             let char_count = word.content.chars().count();
             if char_count == 0 {
                 continue;
             }
-            
+
             let char_width = word.bounds.width / char_count as f32;
-            
+
             for (char_idx, ch) in word.content.chars().enumerate() {
                 let char_x = word.bounds.x + (char_idx as f32 * char_width);
                 positions.push(CharPosition {
@@ -95,39 +108,35 @@ impl InteractiveOcrView {
                 });
             }
         }
-        
+
         positions
     }
 
     pub fn update(&mut self, message: InteractiveOcrMessage) {
         match message {
             InteractiveOcrMessage::StartDrag(char_idx) => {
-                log::debug!("[INTERACTIVE_OCR] Starting drag at char {}", char_idx);
-                self.drag_start = Some(char_idx);
-                self.selected_chars = vec![char_idx];
-                if let Some(pos) = self.char_positions.get(char_idx) {
-                    self.tooltip_position = Some(Point::new(
-                        pos.bounds.x + pos.bounds.width / 2.0,
-                        pos.bounds.y - 10.0
-                    ));
+                if !self.is_selecting {
+                    log::debug!("[INTERACTIVE_OCR] Starting selection at char {}", char_idx);
+                    self.drag_start = Some(char_idx);
+                    self.selected_chars = vec![char_idx];
+                    self.is_selecting = true;
+                } else {
+                    log::debug!("[INTERACTIVE_OCR] Ending selection mode");
+                    self.is_selecting = false;
+                    self.drag_start = None;
                 }
             }
             InteractiveOcrMessage::UpdateDrag(char_idx) => {
-                if let Some(start_idx) = self.drag_start {
-                    let min_idx = start_idx.min(char_idx);
-                    let max_idx = start_idx.max(char_idx);
-                    self.selected_chars = (min_idx..=max_idx).collect();
-                    
-                    if let Some(pos) = self.char_positions.get(char_idx) {
-                        self.tooltip_position = Some(Point::new(
-                            pos.bounds.x + pos.bounds.width / 2.0,
-                            pos.bounds.y - 10.0
-                        ));
+                if self.is_selecting {
+                    if let Some(start_idx) = self.drag_start {
+                        let min_idx = start_idx.min(char_idx);
+                        let max_idx = start_idx.max(char_idx);
+                        self.selected_chars = (min_idx..=max_idx).collect();
                     }
                 }
             }
             InteractiveOcrMessage::EndDrag => {
-                log::debug!("[INTERACTIVE_OCR] Ending drag with {} chars selected", self.selected_chars.len());
+                log::debug!("[INTERACTIVE_OCR] Drag ended with {} chars selected", self.selected_chars.len());
             }
             InteractiveOcrMessage::CopySelected => {
                 let selected_text = self.get_selected_text_with_layout();
@@ -142,16 +151,24 @@ impl InteractiveOcrView {
                 }
             }
             InteractiveOcrMessage::SearchSelected => {
-                let selected_text = self.get_selected_text_with_layout();
-                if !selected_text.is_empty() {
-                    log::info!("[INTERACTIVE_OCR] Searching for: {}", selected_text);
-                    let search_url = format!("https://www.google.com/search?q={}",
-                        urlencoding::encode(&selected_text.replace('\n', " ")));
-
-                    if let Err(e) = open::that(&search_url) {
-                        log::error!("[INTERACTIVE_OCR] Failed to open browser: {}", e);
-                    }
+                if matches!(self.search_state, SearchState::Idle) {
+                    log::info!("[INTERACTIVE_OCR] Starting reverse image search");
+                    self.search_state = SearchState::UploadingImage;
                 }
+            }
+            InteractiveOcrMessage::SearchUploading => {
+                log::debug!("[INTERACTIVE_OCR] Search state: Uploading image");
+                self.search_state = SearchState::UploadingImage;
+            }
+            InteractiveOcrMessage::SearchCompleted => {
+                log::info!("[INTERACTIVE_OCR] Search completed successfully");
+                self.search_state = SearchState::Completed;
+                self.search_state = SearchState::Idle;
+            }
+            InteractiveOcrMessage::SearchFailed(error) => {
+                log::error!("[INTERACTIVE_OCR] Search failed: {}", error);
+                self.search_state = SearchState::Failed(error.clone());
+                self.search_state = SearchState::Idle;
             }
             _ => {}
         }
@@ -166,7 +183,7 @@ impl InteractiveOcrView {
             .iter()
             .filter_map(|&idx| self.char_positions.get(idx))
             .collect();
-        
+
         if selected_positions.is_empty() {
             return String::new();
         }
@@ -181,18 +198,23 @@ impl InteractiveOcrView {
         });
 
         let is_vertical = self.detect_vertical_layout(&selected_positions);
-        
+
         let mut result = String::new();
         let mut last_y = selected_positions[0].bounds.y;
-        
+        let mut last_word_idx = selected_positions[0].word_index;
+
         for pos in selected_positions {
             if is_vertical && (pos.bounds.y - last_y).abs() > 10.0 {
                 result.push('\n');
                 last_y = pos.bounds.y;
+                last_word_idx = pos.word_index;
+            } else if pos.word_index != last_word_idx {
+                result.push(' ');
+                last_word_idx = pos.word_index;
             }
             result.push(pos.character);
         }
-        
+
         result
     }
 
@@ -200,14 +222,14 @@ impl InteractiveOcrView {
         if positions.len() < 2 {
             return false;
         }
-        
+
         let mut y_changes = 0;
         for i in 1..positions.len() {
             if (positions[i].bounds.y - positions[i-1].bounds.y).abs() > 10.0 {
                 y_changes += 1;
             }
         }
-        
+
         y_changes as f32 / positions.len() as f32 > 0.3
     }
 
@@ -227,27 +249,7 @@ impl InteractiveOcrView {
             .width(Length::Fill);
 
         let image_with_overlay = if let Some(ref ocr_result) = self.ocr_result {
-            let overlay = self.render_image_with_overlay(ocr_result);
-            
-            if !self.selected_chars.is_empty() {
-                tooltip(
-                    overlay,
-                    column![
-                        button(text("📋 Copy").size(14))
-                            .padding([4, 8])
-                            .on_press(InteractiveOcrMessage::CopySelected),
-                        button(text("🔍 Search").size(14))
-                            .padding([4, 8])
-                            .on_press(InteractiveOcrMessage::SearchSelected),
-                    ]
-                    .spacing(4),
-                    tooltip::Position::FollowCursor
-                )
-                .gap(5)
-                .into()
-            } else {
-                overlay
-            }
+            self.render_image_with_overlay(ocr_result)
         } else {
             image::viewer(self.image_handle.clone())
                 .width(Length::Fill)
@@ -261,23 +263,38 @@ impl InteractiveOcrView {
 
         if !self.selected_chars.is_empty() {
             let copy_btn = button(text("📋 Copy"))
-                .padding([8, 16])
+                .padding([10, 20])
                 .on_press(InteractiveOcrMessage::CopySelected);
 
-            let search_btn = button(text("🔍 Search"))
-                .padding([8, 16])
-                .on_press(InteractiveOcrMessage::SearchSelected);
-
-            button_row = button_row.push(copy_btn).push(search_btn);
+            button_row = button_row.push(copy_btn);
         }
 
-        let close_btn = button(text("✖ Close"))
-            .padding([8, 16])
+        let (search_button_text, is_searching) = match &self.search_state {
+            SearchState::Idle => ("🔍 Search image with Google", false),
+            SearchState::UploadingImage => ("📤 Uploading image...", true),
+            SearchState::Completed => ("✅ Search completed", true),
+            SearchState::Failed(err) => {
+                log::debug!("[INTERACTIVE_OCR] Search failed with: {}", err);
+                ("❌ Search failed", true)
+            },
+        };
+
+        let mut search_btn = button(text(search_button_text))
+            .padding([10, 20]);
+
+        if !is_searching {
+            search_btn = search_btn.on_press(InteractiveOcrMessage::SearchSelected);
+        }
+
+        let close_btn = button(text("✖ Close (Esc)"))
+            .padding([10, 20])
             .on_press(InteractiveOcrMessage::Close);
 
-        button_row = button_row.push(close_btn);
+        button_row = button_row.push(search_btn).push(close_btn);
 
-        let buttons = button_row.width(Length::Fill);
+        let buttons = container(button_row)
+            .width(Length::Fill)
+            .align_x(Alignment::Center);
 
         let content = column![title, image_with_overlay, buttons]
             .spacing(12)
@@ -443,6 +460,15 @@ impl canvas::Program<InteractiveOcrMessage> for OcrOverlay {
         let scale_y = display_height / img_height;
 
         match event {
+            iced::Event::Keyboard(keyboard_event) => match keyboard_event {
+                iced::keyboard::Event::KeyPressed {
+                    key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),
+                    ..
+                } => {
+                    return Some(canvas::Action::publish(InteractiveOcrMessage::Close));
+                }
+                _ => {}
+            },
             iced::Event::Mouse(mouse_event) => match mouse_event {
                 iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left) => {
                     if let Some(cursor_position) = cursor.position_in(bounds) {

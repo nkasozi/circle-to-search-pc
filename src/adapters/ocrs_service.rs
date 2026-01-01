@@ -13,15 +13,19 @@ use rten_tensor::{AsView, NdTensor};
 use crate::core::interfaces::adapters::OcrService;
 use crate::core::models::{DetectedText, DetectedWord, OcrResult};
 
+#[allow(dead_code)]
 const DETECTION_MODEL_URL: &str =
     "https://huggingface.co/robertknight/ocrs/resolve/main/text-detection-ssfbcj81.rten";
+#[allow(dead_code)]
 const RECOGNITION_MODEL_URL: &str =
     "https://huggingface.co/robertknight/ocrs/resolve/main/text-rec-checkpoint-s52qdbqt.rten";
 
+#[allow(dead_code)]
 pub struct OcrsService {
     engine: Arc<OcrEngine>,
 }
 
+#[allow(dead_code)]
 impl OcrsService {
     pub async fn new() -> Result<Self> {
         log::info!("[OCRS] Initializing OCRS service");

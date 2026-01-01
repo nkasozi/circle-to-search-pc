@@ -1,6 +1,7 @@
 use iced::Rectangle;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct DetectedWord {
     pub content: String,
     pub bounds: Rectangle,
@@ -21,6 +22,7 @@ impl DetectedWord {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct DetectedText {
     pub content: String,
     pub bounds: Rectangle,
@@ -53,6 +55,7 @@ impl DetectedText {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct OcrResult {
     pub text_blocks: Vec<DetectedText>,
     pub full_text: String,

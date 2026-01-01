@@ -48,6 +48,16 @@ pub const DEFAULT_MOUSE_POSITION_Y: i32 = 0;
 
 pub const OVERLAY_BACKGROUND_RGBA: (f32, f32, f32, f32) = (0.0, 0.0, 0.0, 0.3);
 
+pub const IMGBB_API_URL: &str = "https://api.imgbb.com/1/upload";
+pub const IMGBB_API_KEY: &str = "851a50a8320bc2c59b0f564f0a1343de";
+pub const IMGBB_EXPIRATION_SECONDS: &str = "900";
+
+pub const DEFAULT_IMAGE_SEARCH_URL: &str = "https://lens.google.com/uploadbyurl?url={}";
+
+pub const DEFAULT_CAPTURE_HOTKEY: &str = "Alt+Shift+S";
+
+pub const SETTINGS_FILE_NAME: &str = "settings.json";
+
 pub const STARTUP_BANNER: &str = r#"
 ╔════════════════════════════════════════════════════════╗
 ║  Circle to Search - Desktop                            ║
