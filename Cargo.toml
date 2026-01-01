@@ -30,6 +30,8 @@ rten-imageproc = "0.24.0"
 rten-tensor = "0.24.0"
 rusty-tesseract = "1.1.10"
 reqwest = "0.13.1"
+urlencoding = "2.1"
+open = "5.3"
 
 [profile.dev]
 opt-level = 0

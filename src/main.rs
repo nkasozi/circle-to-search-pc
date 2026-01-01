@@ -385,10 +385,16 @@ impl CircleApp {
             }
             Message::InteractiveOcrMessage(window_id, ocr_msg) => {
                 log::debug!("[APP] Received OCR message for window {:?}: {:?}", window_id, ocr_msg);
+
+                if let Some(AppWindow::InteractiveOcr(view)) = self.windows.get_mut(&window_id) {
+                    view.update(ocr_msg.clone());
+                }
+
                 match ocr_msg {
                     presentation::InteractiveOcrMessage::Close => {
                         return window::close(window_id);
                     }
+                    _ => {}
                 }
             }
             Message::CloseWindow(id) => {
