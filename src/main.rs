@@ -15,12 +15,23 @@ use iced::widget::{button, column, container, row, text};
 use iced::window::{self, Id};
 use mouse_position::mouse_position::Mouse;
 
-use core::models::{CaptureBuffer, ScreenRegion};
+use core::models::{CaptureBuffer, OcrResult, ScreenRegion};
+use core::interfaces::adapters::OcrService;
 use core::interfaces::ports::{MousePositionProvider, ScreenCapturer};
+use adapters::TesseractOcrService;
 use ports::{
     GlobalKeyboardEvent, GlobalKeyboardListener, SystemMousePositionProvider, XcapScreenCapturer,
 };
 use presentation::{CaptureView, CaptureViewMessage};
+
+struct DummyOcrService;
+
+#[async_trait::async_trait]
+impl OcrService for DummyOcrService {
+    async fn extract_text_from_image(&self, _image: &image::DynamicImage) -> anyhow::Result<OcrResult> {
+        anyhow::bail!("OCR service not initialized yet")
+    }
+}
 
 fn main() -> iced::Result {
     env_logger::init();
@@ -40,12 +51,13 @@ struct CircleApp {
     screen_capturer: Arc<dyn ScreenCapturer>,
     #[allow(dead_code)]
     mouse_provider: Arc<dyn MousePositionProvider>,
+    ocr_service: Arc<dyn OcrService>,
     windows: HashMap<Id, AppWindow>,
     main_window_id: Option<Id>,
     status: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 enum Message {
     OpenMainWindow,
     CaptureScreen,
@@ -55,6 +67,10 @@ enum Message {
     CaptureOverlayMessage(Id, CaptureViewMessage),
     ConfirmSelection(Id),
     ShowCroppedImage(CaptureBuffer, Rectangle),
+    ProcessOcr(Id, CaptureBuffer),
+    OcrComplete(Id, Result<OcrResult, String>),
+    OcrServiceReady(Arc<dyn OcrService>),
+    OcrServiceFailed(String),
     InteractiveOcrMessage(Id, presentation::InteractiveOcrMessage),
     #[allow(dead_code)]
     CloseWindow(Id),
@@ -62,17 +78,57 @@ enum Message {
     Keyboard(GlobalKeyboardEvent),
 }
 
+impl std::fmt::Debug for Message {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Message::OpenMainWindow => write!(f, "OpenMainWindow"),
+            Message::CaptureScreen => write!(f, "CaptureScreen"),
+            Message::PerformCapture => write!(f, "PerformCapture"),
+            Message::OpenCaptureOverlay(x, y, _) => write!(f, "OpenCaptureOverlay({}, {})", x, y),
+            Message::CaptureError(e) => write!(f, "CaptureError({})", e),
+            Message::CaptureOverlayMessage(id, _) => write!(f, "CaptureOverlayMessage({:?})", id),
+            Message::ConfirmSelection(id) => write!(f, "ConfirmSelection({:?})", id),
+            Message::ShowCroppedImage(_, rect) => write!(f, "ShowCroppedImage({:?})", rect),
+            Message::ProcessOcr(id, _) => write!(f, "ProcessOcr({:?})", id),
+            Message::OcrComplete(id, result) => write!(f, "OcrComplete({:?}, {:?})", id, result.is_ok()),
+            Message::OcrServiceReady(_) => write!(f, "OcrServiceReady"),
+            Message::OcrServiceFailed(e) => write!(f, "OcrServiceFailed({})", e),
+            Message::InteractiveOcrMessage(id, _) => write!(f, "InteractiveOcrMessage({:?})", id),
+            Message::CloseWindow(id) => write!(f, "CloseWindow({:?})", id),
+            Message::WindowClosed(id) => write!(f, "WindowClosed({:?})", id),
+            Message::Keyboard(event) => write!(f, "Keyboard({:?})", event),
+        }
+    }
+}
+
 impl CircleApp {
     fn new() -> (Self, Task<Message>) {
+        log::info!("[APP] Initializing application");
+
         (
             Self {
                 screen_capturer: Arc::new(XcapScreenCapturer::initialize()),
                 mouse_provider: Arc::new(SystemMousePositionProvider::initialize()),
+                ocr_service: Arc::new(DummyOcrService),
                 windows: HashMap::new(),
                 main_window_id: None,
-                status: "Ready - Press Alt+Shift+S to capture".to_string(),
+                status: "Initializing OCR service...".to_string(),
             },
-            Task::done(Message::OpenMainWindow),
+            Task::batch(vec![
+                Task::done(Message::OpenMainWindow),
+                Task::future(async {
+                    match TesseractOcrService::build() {
+                        Ok(service) => {
+                            log::info!("[APP] Tesseract OCR service initialized successfully");
+                            Message::OcrServiceReady(Arc::new(service) as Arc<dyn OcrService>)
+                        }
+                        Err(e) => {
+                            log::error!("[APP] Failed to initialize Tesseract OCR service: {}", e);
+                            Message::OcrServiceFailed(e.to_string())
+                        }
+                    }
+                })
+            ])
         )
     }
 
@@ -257,17 +313,75 @@ impl CircleApp {
                             ..Default::default()
                         });
 
-                        let view = presentation::InteractiveOcrView::build(buffer);
+                        let view = presentation::InteractiveOcrView::build(buffer.clone());
                         self.windows.insert(id, AppWindow::InteractiveOcr(view));
-                        self.status = "Cropped image ready".to_string();
+                        self.status = "Processing OCR...".to_string();
 
-                        return task.discard();
+                        return Task::batch(vec![
+                            task.discard(),
+                            Task::done(Message::ProcessOcr(id, buffer))
+                        ]);
                     }
                     Err(e) => {
                         log::error!("[APP] Failed to crop image: {}", e);
                         self.status = format!("Error cropping image: {}", e);
                     }
                 }
+            }
+            Message::ProcessOcr(window_id, buffer) => {
+                log::info!("[APP] Starting OCR processing for window {:?}", window_id);
+
+                let ocr_service = self.ocr_service.clone();
+                let width = buffer.width;
+                let height = buffer.height;
+
+                return Task::future(async move {
+                    log::debug!("[OCR] Converting capture buffer to dynamic image {}x{}", width, height);
+
+                    let dynamic_image = match image::DynamicImage::ImageRgba8(
+                        image::RgbaImage::from_raw(width, height, buffer.raw_data.clone())
+                            .expect("Failed to create image from raw data")
+                    ) {
+                        img => img,
+                    };
+
+                    log::debug!("[OCR] Running OCR on image");
+                    match ocr_service.extract_text_from_image(&dynamic_image).await {
+                        Ok(result) => {
+                            log::info!("[OCR] OCR completed successfully. Found {} text blocks", result.text_blocks.len());
+                            Message::OcrComplete(window_id, Ok(result))
+                        }
+                        Err(e) => {
+                            log::error!("[OCR] OCR failed: {}", e);
+                            Message::OcrComplete(window_id, Err(e.to_string()))
+                        }
+                    }
+                });
+            }
+            Message::OcrComplete(window_id, result) => {
+                match result {
+                    Ok(ocr_result) => {
+                        log::info!("[APP] OCR complete for window {:?}: {} text blocks found", window_id, ocr_result.text_blocks.len());
+
+                        if let Some(AppWindow::InteractiveOcr(view)) = self.windows.get_mut(&window_id) {
+                            view.set_ocr_result(ocr_result);
+                            self.status = "OCR complete".to_string();
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("[APP] OCR failed for window {:?}: {}", window_id, e);
+                        self.status = format!("OCR failed: {}", e);
+                    }
+                }
+            }
+            Message::OcrServiceReady(service) => {
+                log::info!("[APP] OCR service is ready");
+                self.ocr_service = service;
+                self.status = "Ready - Press Alt+Shift+S to capture".to_string();
+            }
+            Message::OcrServiceFailed(error) => {
+                log::error!("[APP] OCR service initialization failed: {}", error);
+                self.status = format!("OCR initialization failed: {}", error);
             }
             Message::InteractiveOcrMessage(window_id, ocr_msg) => {
                 log::debug!("[APP] Received OCR message for window {:?}: {:?}", window_id, ocr_msg);

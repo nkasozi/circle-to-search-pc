@@ -7,7 +7,7 @@ pub struct CaptureBuffer {
     pub image_handle: image::Handle,
     pub width: u32,
     pub height: u32,
-    raw_data: Vec<u8>,
+    pub raw_data: Vec<u8>,
 }
 
 impl std::fmt::Debug for CaptureBuffer {

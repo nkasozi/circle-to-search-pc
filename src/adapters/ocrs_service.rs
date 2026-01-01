@@ -80,21 +80,14 @@ impl OcrService for OcrsService {
     async fn extract_text_from_image(&self, image: &DynamicImage) -> Result<OcrResult> {
         log::info!("[OCRS] Starting text extraction");
 
-        // Convert to RGB8 as expected by ocrs/rten-imageio
         let rgb_image = image.to_rgb8();
         let (width, height) = rgb_image.dimensions();
 
         log::debug!("[OCRS] Image dimensions: {}x{}", width, height);
 
-        // rten_imageio 0.21 uses read_image for reading from file, but for buffer we might need to construct tensor manually
-        // or use a different approach. Let's check rten_tensor usage.
-        // Actually, for OCRS we need an Image input which is usually CHW tensor.
-
         let mut image_tensor = NdTensor::zeros([1, 3, height as usize, width as usize]);
         let data = rgb_image.into_raw();
 
-        // Simple manual conversion to CHW float tensor normalized to [0, 1]
-        // This is what OCRS expects usually
         for y in 0..height {
             for x in 0..width {
                 let pixel_idx = ((y * width + x) * 3) as usize;
@@ -108,7 +101,6 @@ impl OcrService for OcrsService {
             }
         }
 
-        // Use nd_view() to get a view with static rank 4, then slice to rank 3 (CHW)
         let tensor_view = image_tensor.view();
         let chw_view = tensor_view
             .slice([0..1, 0..3, 0..height as usize, 0..width as usize])
@@ -125,74 +117,66 @@ impl OcrService for OcrsService {
         let line_rects = self.engine.find_text_lines(&ocr_input, &word_rects);
         let line_texts = self.engine.recognize_text(&ocr_input, &line_rects)?;
 
+        log::info!("[OCRS] Detected {} lines with text", line_texts.len());
+
         let mut detected_texts = Vec::new();
         let mut full_text = String::new();
 
-        for line in line_texts.iter().flatten() {
-            if let Some(text) = &line.to_string().into() {
-                if text.trim().is_empty() {
-                    continue;
-                }
-
-                full_text.push_str(text);
-                full_text.push('\n');
-            }
-        }
-
-        // Re-iterating to match rects with text
-        // line_texts is Vec<Option<TextLine>>
-        for (i, line_opt) in line_texts.iter().enumerate() {
+        for (line_idx, line_opt) in line_texts.iter().enumerate() {
             if let Some(line) = line_opt {
-                let text = line.to_string();
-                if text.trim().is_empty() {
+                let line_text = line.to_string();
+                if line_text.trim().is_empty() {
                     continue;
                 }
 
-                if i < line_rects.len() {
-                    let words_in_line = &line_rects[i];
+                full_text.push_str(&line_text);
+                full_text.push('\n');
 
-                    if let Some(first_word) = words_in_line.first() {
-                        let mut bbox = first_word.bounding_rect();
+                if line_idx < line_rects.len() {
+                    let words_in_line = &line_rects[line_idx];
+                    let word_texts: Vec<&str> = line_text.split_whitespace().collect();
 
-                        for word in words_in_line.iter().skip(1) {
-                            bbox = bbox.union(word.bounding_rect());
-                        }
+                    log::debug!(
+                        "[OCRS] Line {}: '{}' has {} word rects and {} word texts",
+                        line_idx,
+                        line_text,
+                        words_in_line.len(),
+                        word_texts.len()
+                    );
 
-                        let mut detected_words = Vec::new();
-                        let word_texts: Vec<&str> = text.split_whitespace().collect();
-
-                        for (word_idx, word_rect) in words_in_line.iter().enumerate() {
-                            if word_idx < word_texts.len() {
-                                let word_bbox = word_rect.bounding_rect();
-                                detected_words.push(DetectedWord::new(
-                                    word_texts[word_idx].to_string(),
-                                    word_bbox.left() as f32,
-                                    word_bbox.top() as f32,
-                                    word_bbox.width() as f32,
-                                    word_bbox.height() as f32,
-                                ));
-                            }
-                        }
+                    for (word_idx, word_rect) in words_in_line.iter().enumerate() {
+                        let word_bbox = word_rect.bounding_rect();
+                        let word_content = if word_idx < word_texts.len() {
+                            word_texts[word_idx].to_string()
+                        } else {
+                            format!("word_{}", word_idx)
+                        };
 
                         log::debug!(
-                            "[OCRS] Text block {}: '{}' at ({},{}) {}x{} with {} words",
-                            i,
-                            text,
-                            bbox.left(),
-                            bbox.top(),
-                            bbox.width(),
-                            bbox.height(),
-                            detected_words.len()
+                            "[OCRS] Word {}.{}: '{}' at ({},{}) {}x{}",
+                            line_idx,
+                            word_idx,
+                            word_content,
+                            word_bbox.left(),
+                            word_bbox.top(),
+                            word_bbox.width(),
+                            word_bbox.height()
                         );
 
                         detected_texts.push(DetectedText::new(
-                            text,
-                            bbox.left() as f32,
-                            bbox.top() as f32,
-                            bbox.width() as f32,
-                            bbox.height() as f32,
+                            word_content.clone(),
+                            word_bbox.left() as f32,
+                            word_bbox.top() as f32,
+                            word_bbox.width() as f32,
+                            word_bbox.height() as f32,
                             1.0,
-                            detected_words,
+                            vec![DetectedWord::new(
+                                word_content,
+                                word_bbox.left() as f32,
+                                word_bbox.top() as f32,
+                                word_bbox.width() as f32,
+                                word_bbox.height() as f32,
+                            )],
                         ));
                     }
                 }
@@ -200,7 +184,7 @@ impl OcrService for OcrsService {
         }
 
         log::info!(
-            "[OCRS] Extraction complete. Found {} text blocks",
+            "[OCRS] Extraction complete. Found {} individual words",
             detected_texts.len()
         );
 

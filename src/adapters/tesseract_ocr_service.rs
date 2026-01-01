@@ -1,10 +1,10 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use image::DynamicImage;
-use rusty_tesseract::{Args, Image as TesseractImage};
+use rusty_tesseract::{Args, DataOutput, Image as TesseractImage};
 
 use crate::core::interfaces::adapters::OcrService;
-use crate::core::models::OcrResult;
+use crate::core::models::{DetectedText, DetectedWord, OcrResult};
 
 pub struct TesseractOcrService;
 
@@ -12,15 +12,6 @@ impl TesseractOcrService {
     pub fn build() -> Result<Self> {
         log::info!("[TESSERACT_OCR] Initializing Tesseract OCR service");
         Ok(Self)
-    }
-
-    fn convert_to_tesseract_compatible_format(image: &DynamicImage) -> Result<Vec<u8>> {
-        log::debug!("[TESSERACT_OCR] Converting image to compatible format");
-        let mut buffer = Vec::new();
-        image
-            .write_to(&mut std::io::Cursor::new(&mut buffer), image::ImageFormat::Png)
-            .context("Failed to convert image to PNG format")?;
-        Ok(buffer)
     }
 }
 
@@ -34,26 +25,79 @@ impl OcrService for TesseractOcrService {
             image.height()
         );
 
-        let image_data = Self::convert_to_tesseract_compatible_format(image)
-            .context("Failed to prepare image for OCR")?;
-
         let tesseract_image = TesseractImage::from_dynamic_image(&image.clone())
             .context("Failed to create Tesseract image")?;
 
-        let args = Args::default();
+        let mut args = Args::default();
+        args.config_variables
+            .insert("tessedit_create_tsv".to_string(), "1".to_string());
 
-        let extracted_text = rusty_tesseract::image_to_string(&tesseract_image, &args)
-            .context("Failed to extract text from image")?;
+        log::debug!("[TESSERACT_OCR] Getting TSV output for word bounding boxes");
+        let tsv_output = rusty_tesseract::image_to_data(&tesseract_image, &args)
+            .context("Failed to extract TSV data from image")?;
+
+        log::debug!("[TESSERACT_OCR] Parsing TSV output");
+        let mut detected_texts = Vec::new();
+        let mut full_text = String::new();
+
+        for line in tsv_output.data.iter() {
+            if line.level != 5 {
+                continue;
+            }
+
+            if line.text.trim().is_empty() {
+                continue;
+            }
+
+            let conf = line.conf;
+            if conf < 30.0 {
+                log::debug!(
+                    "[TESSERACT_OCR] Skipping low confidence word '{}' (conf: {})",
+                    line.text,
+                    conf
+                );
+                continue;
+            }
+
+            let word_text = line.text.clone();
+            let x = line.left as f32;
+            let y = line.top as f32;
+            let width = line.width as f32;
+            let height = line.height as f32;
+
+            log::debug!(
+                "[TESSERACT_OCR] Word: '{}' at ({},{}) {}x{} conf: {}",
+                word_text,
+                x,
+                y,
+                width,
+                height,
+                conf
+            );
+
+            full_text.push_str(&word_text);
+            full_text.push(' ');
+
+            detected_texts.push(DetectedText::new(
+                word_text.clone(),
+                x,
+                y,
+                width,
+                height,
+                conf / 100.0,
+                vec![DetectedWord::new(word_text, x, y, width, height)],
+            ));
+        }
 
         log::info!(
-            "[TESSERACT_OCR] Text extraction complete. Extracted {} characters",
-            extracted_text.len()
+            "[TESSERACT_OCR] Text extraction complete. Found {} words",
+            detected_texts.len()
         );
-        log::debug!("[TESSERACT_OCR] Extracted text: {}", extracted_text);
+        log::debug!("[TESSERACT_OCR] Full text: {}", full_text.trim());
 
         Ok(OcrResult {
-            text_blocks: vec![],
-            full_text: extracted_text,
+            text_blocks: detected_texts,
+            full_text: full_text.trim().to_string(),
         })
     }
 }
