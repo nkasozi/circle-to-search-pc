@@ -8,7 +8,7 @@ mod presentation;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use iced::{Alignment, Element, Length, Point, Size, Task};
+use iced::{Alignment, Element, Length, Point, Rectangle, Size, Task};
 use iced::daemon;
 use iced::widget::{button, column, container, row, text};
 use iced::window::{self, Id};
@@ -32,6 +32,7 @@ fn main() -> iced::Result {
 enum AppWindow {
     Main,
     CaptureOverlay(CaptureView),
+    InteractiveOcr(presentation::InteractiveOcrView),
 }
 
 struct CircleApp {
@@ -52,6 +53,8 @@ enum Message {
     CaptureError(String),
     CaptureOverlayMessage(Id, CaptureViewMessage),
     ConfirmSelection(Id),
+    ShowCroppedImage(CaptureBuffer, Rectangle),
+    InteractiveOcrMessage(Id, presentation::InteractiveOcrMessage),
     #[allow(dead_code)]
     CloseWindow(Id),
     WindowClosed(Id),
@@ -209,8 +212,69 @@ impl CircleApp {
             }
             Message::ConfirmSelection(overlay_id) => {
                 log::info!("[APP] Confirming selection from overlay {:?}", overlay_id);
-                self.status = "Selection confirmed!".to_string();
+
+                if let Some(AppWindow::CaptureOverlay(capture_view)) = self.windows.get(&overlay_id) {
+                    if let Some(selection_rect) = capture_view.get_selected_region() {
+                        log::info!("[APP] Selection region: {:?}", selection_rect);
+                        let capture_buffer = capture_view.get_capture_buffer().clone();
+
+                        self.status = "Processing selection...".to_string();
+                        return Task::batch(vec![
+                            window::close(overlay_id),
+                            Task::done(Message::ShowCroppedImage(capture_buffer, selection_rect))
+                        ]);
+                    } else {
+                        log::warn!("[APP] No selection region found");
+                    }
+                } else {
+                    log::warn!("[APP] Overlay window not found");
+                }
+
                 return window::close(overlay_id);
+            }
+            Message::ShowCroppedImage(capture_buffer, selection_rect) => {
+                log::info!("[APP] Showing cropped image from selection: {:?}", selection_rect);
+
+                let cropped_buffer = capture_buffer.crop_region(
+                    selection_rect.x as u32,
+                    selection_rect.y as u32,
+                    selection_rect.width as u32,
+                    selection_rect.height as u32,
+                );
+
+                match cropped_buffer {
+                    Ok(buffer) => {
+                        log::info!("[APP] Successfully cropped image: {}x{}", buffer.width, buffer.height);
+
+                        let (id, task) = window::open(window::Settings {
+                            size: Size::new(
+                                (buffer.width as f32).min(1200.0),
+                                (buffer.height as f32).min(800.0)
+                            ),
+                            position: window::Position::Centered,
+                            resizable: true,
+                            ..Default::default()
+                        });
+
+                        let view = presentation::InteractiveOcrView::build(buffer);
+                        self.windows.insert(id, AppWindow::InteractiveOcr(view));
+                        self.status = "Cropped image ready".to_string();
+
+                        return task.discard();
+                    }
+                    Err(e) => {
+                        log::error!("[APP] Failed to crop image: {}", e);
+                        self.status = format!("Error cropping image: {}", e);
+                    }
+                }
+            }
+            Message::InteractiveOcrMessage(window_id, ocr_msg) => {
+                log::debug!("[APP] Received OCR message for window {:?}: {:?}", window_id, ocr_msg);
+                match ocr_msg {
+                    presentation::InteractiveOcrMessage::Close => {
+                        return window::close(window_id);
+                    }
+                }
             }
             Message::CloseWindow(id) => {
                 log::info!("[APP] Closing window: {:?}", id);
@@ -232,6 +296,9 @@ impl CircleApp {
             Some(AppWindow::Main) => self.view_main_window(),
             Some(AppWindow::CaptureOverlay(capture_view)) => {
                 capture_view.render_ui().map(move |msg| Message::CaptureOverlayMessage(window_id, msg))
+            }
+            Some(AppWindow::InteractiveOcr(ocr_view)) => {
+                ocr_view.render_ui().map(move |msg| Message::InteractiveOcrMessage(window_id, msg))
             }
             None => text("Loading...").into(),
         }

@@ -9,7 +9,6 @@ pub struct CaptureView {
     selection_start: Option<Point>,
     selection_current: Option<Point>,
     is_selecting: bool,
-    viewer_bounds: std::cell::Cell<Rectangle>,
 }
 
 #[derive(Debug, Clone)]
@@ -30,7 +29,6 @@ impl CaptureView {
             selection_start: None,
             selection_current: None,
             is_selecting: false,
-            viewer_bounds: std::cell::Cell::new(Rectangle::new(Point::ORIGIN, Size::ZERO)),
         }
     }
 
@@ -84,52 +82,6 @@ impl CaptureView {
             }
             _ => None,
         }
-    }
-
-    pub fn get_selected_region(&self) -> Option<Rectangle> {
-        self.calculate_selection_rectangle().map(|(point, size)| {
-            let selection_rect = Rectangle::new(point, size);
-
-            let viewer_bounds = self.viewer_bounds.get();
-            if viewer_bounds.width == 0.0 || viewer_bounds.height == 0.0 {
-                log::warn!("[CAPTURE_VIEW] Viewer bounds not set, using raw selection");
-                return selection_rect;
-            }
-
-            let scale_x = self.capture_buffer.width as f32 / viewer_bounds.width;
-            let scale_y = self.capture_buffer.height as f32 / viewer_bounds.height;
-
-            let image_x = (selection_rect.x - viewer_bounds.x) * scale_x;
-            let image_y = (selection_rect.y - viewer_bounds.y) * scale_y;
-            let image_width = selection_rect.width * scale_x;
-            let image_height = selection_rect.height * scale_y;
-
-            log::debug!(
-                "[CAPTURE_VIEW] Selection coords: {:?} -> Image coords: ({}, {}) {}x{}",
-                selection_rect,
-                image_x,
-                image_y,
-                image_width,
-                image_height
-            );
-            log::debug!(
-                "[CAPTURE_VIEW] Viewer bounds: {:?}, Image size: {}x{}, Scale: ({}, {})",
-                viewer_bounds,
-                self.capture_buffer.width,
-                self.capture_buffer.height,
-                scale_x,
-                scale_y
-            );
-
-            Rectangle::new(
-                Point::new(image_x, image_y),
-                Size::new(image_width, image_height),
-            )
-        })
-    }
-
-    pub fn get_capture_buffer(&self) -> &CaptureBuffer {
-        &self.capture_buffer
     }
 }
 
@@ -189,29 +141,6 @@ impl canvas::Program<CaptureViewMessage> for CaptureView {
         bounds: Rectangle,
         _cursor: mouse::Cursor,
     ) -> Vec<canvas::Geometry<iced::Renderer>> {
-        let img_width = self.capture_buffer.width as f32;
-        let img_height = self.capture_buffer.height as f32;
-        let img_aspect = img_width / img_height;
-        let bounds_aspect = bounds.width / bounds.height;
-
-        let (display_width, display_height, offset_x, offset_y) = if img_aspect > bounds_aspect {
-            let display_width = bounds.width;
-            let display_height = bounds.width / img_aspect;
-            let offset_y = (bounds.height - display_height) / 2.0;
-            (display_width, display_height, 0.0, offset_y)
-        } else {
-            let display_height = bounds.height;
-            let display_width = bounds.height * img_aspect;
-            let offset_x = (bounds.width - display_width) / 2.0;
-            (display_width, display_height, offset_x, 0.0)
-        };
-
-        let viewer_rect = Rectangle::new(
-            Point::new(offset_x, offset_y),
-            Size::new(display_width, display_height),
-        );
-        self.viewer_bounds.set(viewer_rect);
-
         let mut frame = canvas::Frame::new(renderer, bounds.size());
 
         if let Some((top_left, size)) = self.calculate_selection_rectangle() {
