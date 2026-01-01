@@ -1,5 +1,5 @@
 use crate::core::models::ScreenRegion;
-use crate::core::ports::MousePositionProvider;
+use crate::core::interfaces::ports::MousePositionProvider;
 use crate::global_constants::MESSAGE_MOUSE_POSITION_FAILED;
 use mouse_position::mouse_position::Mouse;
 

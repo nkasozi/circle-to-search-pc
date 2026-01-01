@@ -1,8 +1,10 @@
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use image::DynamicImage;
 use rusty_tesseract::{Args, Image as TesseractImage};
 
-use crate::core::adapters::OcrService;
+use crate::core::interfaces::adapters::OcrService;
+use crate::core::models::OcrResult;
 
 pub struct TesseractOcrService;
 
@@ -22,8 +24,9 @@ impl TesseractOcrService {
     }
 }
 
+#[async_trait]
 impl OcrService for TesseractOcrService {
-    fn extract_text_from_image(&self, image: &DynamicImage) -> Result<String> {
+    async fn extract_text_from_image(&self, image: &DynamicImage) -> Result<OcrResult> {
         log::info!("[TESSERACT_OCR] Starting text extraction");
         log::debug!(
             "[TESSERACT_OCR] Image dimensions: {}x{}",
@@ -48,6 +51,9 @@ impl OcrService for TesseractOcrService {
         );
         log::debug!("[TESSERACT_OCR] Extracted text: {}", extracted_text);
 
-        Ok(extracted_text)
+        Ok(OcrResult {
+            text_blocks: vec![],
+            full_text: extracted_text,
+        })
     }
 }

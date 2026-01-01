@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 
 use crate::core::models::{CaptureBuffer, ScreenRegion};
-use crate::core::ports::ScreenCapturer;
+use crate::core::interfaces::ports::ScreenCapturer;
 use crate::global_constants::{
     ERROR_CONTEXT_CAPTURE_MONITOR, ERROR_CONTEXT_SCALE_FACTOR, LOG_TAG_CAPTURE,
 };

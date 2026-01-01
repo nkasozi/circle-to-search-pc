@@ -10,7 +10,7 @@ use rten::Model;
 use rten_imageproc::BoundingRect;
 use rten_tensor::{AsView, NdTensor};
 
-use crate::core::adapters::OcrService;
+use crate::core::interfaces::adapters::OcrService;
 use crate::core::models::{DetectedText, DetectedWord, OcrResult};
 
 const DETECTION_MODEL_URL: &str =

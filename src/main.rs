@@ -1,8 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod adapters;
 mod core;
 mod global_constants;
-mod infrastructure;
+mod ports;
 mod presentation;
 
 use std::collections::HashMap;
@@ -15,8 +16,8 @@ use iced::window::{self, Id};
 use mouse_position::mouse_position::Mouse;
 
 use core::models::{CaptureBuffer, ScreenRegion};
-use core::ports::{MousePositionProvider, ScreenCapturer};
-use infrastructure::{
+use core::interfaces::ports::{MousePositionProvider, ScreenCapturer};
+use ports::{
     GlobalKeyboardEvent, GlobalKeyboardListener, SystemMousePositionProvider, XcapScreenCapturer,
 };
 use presentation::{CaptureView, CaptureViewMessage};
