@@ -235,12 +235,21 @@ impl CircleApp {
                 log::info!("[APP] Starting capture screen process");
                 self.status = "Preparing to capture...".to_string();
 
-                log::debug!("[APP] Waiting 200ms before capture to allow window to update");
-                return Task::future(async {
-                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                    log::debug!("[APP] Delay complete, triggering PerformCapture");
-                    Message::PerformCapture
-                });
+                let main_window_id = self.main_window_id;
+
+                log::debug!("[APP] Minimizing main window and waiting 200ms before capture");
+                return Task::batch(vec![
+                    if let Some(id) = main_window_id {
+                        window::minimize(id, true)
+                    } else {
+                        Task::none()
+                    },
+                    Task::future(async {
+                        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                        log::debug!("[APP] Delay complete, triggering PerformCapture");
+                        Message::PerformCapture
+                    })
+                ]);
             }
             Message::PerformCapture => {
                 log::info!("[APP] Performing screen capture");
@@ -363,6 +372,8 @@ impl CircleApp {
             }
             Message::ShowCroppedImage(capture_buffer, selection_rect) => {
                 log::info!("[APP] Showing cropped image from selection: {:?}", selection_rect);
+
+                let _main_window_id = self.main_window_id;
 
                 let cropped_buffer = capture_buffer.crop_region(
                     selection_rect.x as u32,
@@ -582,6 +593,7 @@ impl CircleApp {
             }
             Message::WindowClosed(id) => {
                 log::info!("[APP] Window closed: {:?}", id);
+                let was_ocr_window = matches!(self.windows.get(&id), Some(AppWindow::InteractiveOcr(_)));
                 self.windows.remove(&id);
                 if Some(id) == self.settings_window_id {
                     self.settings_window_id = None;
@@ -589,6 +601,12 @@ impl CircleApp {
                 }
                 log::debug!("[APP] Removed window from tracking. Remaining: {}", self.windows.len());
                 self.status = "Ready - Press Alt+Shift+S to capture".to_string();
+
+                if was_ocr_window {
+                    if let Some(main_id) = self.main_window_id {
+                        return window::minimize(main_id, false);
+                    }
+                }
             }
             Message::OpenSettings => {
                 log::info!("[APP] Opening settings window");
