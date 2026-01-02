@@ -210,7 +210,7 @@ jobs:
           DefaultDirName={autopf}\{#MyAppName}
           DefaultGroupName={#MyAppName}
           OutputDir=.
-          OutputBaseFilename=${{ matrix.asset_name }}
+          OutputBaseFilename=circle-to-search-pc-windows-x86_64-setup
           Compression=lzma
           SolidCompression=yes
 
@@ -234,9 +234,7 @@ jobs:
           choco install innosetup -y
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup.iss
 
-          if (-not (Test-Path "${{ matrix.asset_name }}")) {
-            Copy-Item "Output\${{ matrix.asset_name }}" -Destination "."
-          }
+          Move-Item "circle-to-search-pc-windows-x86_64-setup.exe" "${{ matrix.asset_name }}"
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v1
