@@ -46,6 +46,7 @@ pub enum InteractiveOcrMessage {
     SearchCompleted,
     SearchFailed(String),
     HideToast,
+    SelectAll,
 }
 
 impl InteractiveOcrView {
@@ -202,6 +203,10 @@ impl InteractiveOcrView {
             }
             InteractiveOcrMessage::HideToast => {
                 self.show_toast = false;
+            }
+            InteractiveOcrMessage::SelectAll => {
+                log::info!("[INTERACTIVE_OCR] Selecting all {} characters", self.char_positions.len());
+                self.selected_chars = (0..self.char_positions.len()).collect();
             }
         }
     }
@@ -545,6 +550,16 @@ impl canvas::Program<InteractiveOcrMessage> for OcrOverlay {
                     ..
                 } => {
                     return Some(canvas::Action::publish(InteractiveOcrMessage::Close));
+                }
+                iced::keyboard::Event::KeyPressed {
+                    key: iced::keyboard::Key::Character(c),
+                    modifiers,
+                    ..
+                } => {
+                    if (modifiers.command() || modifiers.control()) && c.as_str() == "a" {
+                        log::debug!("[INTERACTIVE_OCR] Select all triggered via keyboard shortcut");
+                        return Some(canvas::Action::publish(InteractiveOcrMessage::SelectAll));
+                    }
                 }
                 _ => {}
             },
