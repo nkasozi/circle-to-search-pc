@@ -116,12 +116,11 @@ impl InteractiveOcrView {
         match message {
             InteractiveOcrMessage::StartDrag(char_idx) => {
                 if !self.is_selecting {
-                    log::debug!("[INTERACTIVE_OCR] Starting selection at char {}", char_idx);
+                    log::debug!("[INTERACTIVE_OCR] Starting new selection at char {}", char_idx);
                     self.drag_start = Some(char_idx);
-                    self.selected_chars = vec![char_idx];
                     self.is_selecting = true;
                 } else {
-                    log::debug!("[INTERACTIVE_OCR] Ending selection mode");
+                    log::debug!("[INTERACTIVE_OCR] Ending current drag session, keeping selections");
                     self.is_selecting = false;
                     self.drag_start = None;
                 }
@@ -131,7 +130,16 @@ impl InteractiveOcrView {
                     if let Some(start_idx) = self.drag_start {
                         let min_idx = start_idx.min(char_idx);
                         let max_idx = start_idx.max(char_idx);
-                        self.selected_chars = (min_idx..=max_idx).collect();
+                        let new_selection: Vec<usize> = (min_idx..=max_idx).collect();
+
+                        let mut combined_selection = self.selected_chars.clone();
+                        for idx in new_selection {
+                            if !combined_selection.contains(&idx) {
+                                combined_selection.push(idx);
+                            }
+                        }
+                        combined_selection.sort_unstable();
+                        self.selected_chars = combined_selection;
                     }
                 }
             }
