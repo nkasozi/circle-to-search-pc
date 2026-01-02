@@ -94,6 +94,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Download Tesseract Data Files
+        shell: bash
         run: |
           mkdir -p tessdata
           cd tessdata
