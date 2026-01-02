@@ -1,5 +1,5 @@
-use iced::{Background, Border, Color, Shadow, Theme, Vector};
 use iced::widget::button;
+use iced::{Background, Border, Color, Shadow, Theme, Vector};
 
 use crate::user_settings::ThemeMode;
 

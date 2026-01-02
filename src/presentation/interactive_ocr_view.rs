@@ -1,5 +1,5 @@
-use iced::widget::{button, column, container, image, row, text, canvas, stack};
-use iced::{Alignment, Element, Length, Point, Rectangle, Size, Color};
+use iced::widget::{button, canvas, column, container, image, row, stack, text};
+use iced::{Alignment, Color, Element, Length, Point, Rectangle, Size};
 
 use crate::core::models::{CaptureBuffer, OcrResult};
 
@@ -49,7 +49,10 @@ pub enum InteractiveOcrMessage {
 }
 
 impl InteractiveOcrView {
-    pub fn build(capture_buffer: CaptureBuffer, theme_mode: crate::user_settings::ThemeMode) -> Self {
+    pub fn build(
+        capture_buffer: CaptureBuffer,
+        theme_mode: crate::user_settings::ThemeMode,
+    ) -> Self {
         log::info!(
             "[INTERACTIVE_OCR] Creating view for cropped image: {}x{}",
             capture_buffer.width,
@@ -83,7 +86,10 @@ impl InteractiveOcrView {
         );
 
         self.char_positions = Self::calculate_char_positions(&result);
-        log::info!("[INTERACTIVE_OCR] Calculated {} character positions", self.char_positions.len());
+        log::info!(
+            "[INTERACTIVE_OCR] Calculated {} character positions",
+            self.char_positions.len()
+        );
         self.ocr_result = Some(result);
     }
 
@@ -119,15 +125,19 @@ impl InteractiveOcrView {
 
     pub fn update(&mut self, message: InteractiveOcrMessage) {
         match message {
-            InteractiveOcrMessage::Close => {
-            }
+            InteractiveOcrMessage::Close => {}
             InteractiveOcrMessage::StartDrag(char_idx) => {
                 if !self.is_selecting {
-                    log::debug!("[INTERACTIVE_OCR] Starting new selection at char {}", char_idx);
+                    log::debug!(
+                        "[INTERACTIVE_OCR] Starting new selection at char {}",
+                        char_idx
+                    );
                     self.drag_start = Some(char_idx);
                     self.is_selecting = true;
                 } else {
-                    log::debug!("[INTERACTIVE_OCR] Ending current drag session, keeping selections");
+                    log::debug!(
+                        "[INTERACTIVE_OCR] Ending current drag session, keeping selections"
+                    );
                     self.is_selecting = false;
                     self.drag_start = None;
                 }
@@ -151,14 +161,18 @@ impl InteractiveOcrView {
                 }
             }
             InteractiveOcrMessage::EndDrag => {
-                log::debug!("[INTERACTIVE_OCR] Drag ended with {} chars selected", self.selected_chars.len());
+                log::debug!(
+                    "[INTERACTIVE_OCR] Drag ended with {} chars selected",
+                    self.selected_chars.len()
+                );
             }
             InteractiveOcrMessage::CopySelected => {
                 let selected_text = self.get_selected_text_with_layout();
                 if !selected_text.is_empty() {
                     log::info!("[INTERACTIVE_OCR] Copying text: {}", selected_text);
                     if let Err(e) = arboard::Clipboard::new()
-                        .and_then(|mut clipboard| clipboard.set_text(&selected_text)) {
+                        .and_then(|mut clipboard| clipboard.set_text(&selected_text))
+                    {
                         log::error!("[INTERACTIVE_OCR] Failed to copy to clipboard: {}", e);
                     } else {
                         log::info!("[INTERACTIVE_OCR] Text copied to clipboard");
@@ -197,7 +211,8 @@ impl InteractiveOcrView {
             return String::new();
         }
 
-        let mut selected_positions: Vec<&CharPosition> = self.selected_chars
+        let mut selected_positions: Vec<&CharPosition> = self
+            .selected_chars
             .iter()
             .filter_map(|&idx| self.char_positions.get(idx))
             .collect();
@@ -243,7 +258,7 @@ impl InteractiveOcrView {
 
         let mut y_changes = 0;
         for i in 1..positions.len() {
-            if (positions[i].bounds.y - positions[i-1].bounds.y).abs() > 10.0 {
+            if (positions[i].bounds.y - positions[i - 1].bounds.y).abs() > 10.0 {
                 y_changes += 1;
             }
         }
@@ -254,7 +269,10 @@ impl InteractiveOcrView {
     pub fn render_ui(&self) -> Element<'_, InteractiveOcrMessage> {
         let status_text = if let Some(ref result) = self.ocr_result {
             if self.selected_chars.is_empty() {
-                format!("Detected {} words - Drag to select characters", result.text_blocks.len())
+                format!(
+                    "Detected {} words - Drag to select characters",
+                    result.text_blocks.len()
+                )
             } else {
                 format!("Selected {} characters", self.selected_chars.len())
             }
@@ -276,16 +294,12 @@ impl InteractiveOcrView {
                 .into()
         };
 
-        let mut button_row = row![]
-            .spacing(10)
-            .align_y(Alignment::Center);
+        let mut button_row = row![].spacing(10).align_y(Alignment::Center);
 
         if !self.selected_chars.is_empty() {
             let copy_btn = button(text("📋 Copy"))
                 .padding([12, 24])
-                .style(|theme, status| {
-                    crate::app_theme::purple_button_style(theme, status)
-                })
+                .style(|theme, status| crate::app_theme::purple_button_style(theme, status))
                 .on_press(InteractiveOcrMessage::CopySelected);
 
             button_row = button_row.push(copy_btn);
@@ -298,14 +312,12 @@ impl InteractiveOcrView {
             SearchState::Failed(err) => {
                 log::debug!("[INTERACTIVE_OCR] Search failed with: {}", err);
                 ("❌ Search failed", true)
-            },
+            }
         };
 
         let mut search_btn = button(text(search_button_text))
             .padding([12, 24])
-            .style(|theme, status| {
-                crate::app_theme::primary_button_style(theme, status)
-            });
+            .style(|theme, status| crate::app_theme::primary_button_style(theme, status));
 
         if !is_searching {
             search_btn = search_btn.on_press(InteractiveOcrMessage::SearchSelected);
@@ -313,9 +325,7 @@ impl InteractiveOcrView {
 
         let close_btn = button(text("✖ Close (Esc)"))
             .padding([12, 24])
-            .style(|theme, status| {
-                crate::app_theme::danger_button_style(theme, status)
-            })
+            .style(|theme, status| crate::app_theme::danger_button_style(theme, status))
             .on_press(InteractiveOcrMessage::Close);
 
         button_row = button_row.push(search_btn).push(close_btn);
@@ -332,35 +342,35 @@ impl InteractiveOcrView {
             .align_x(Alignment::Center);
 
         if self.show_toast {
-            let toast = container(
-                text("✓ Text copied to clipboard")
-                    .size(16)
-                    .style(|_theme| {
-                        iced::widget::text::Style {
-                            color: Some(Color::WHITE),
-                        }
-                    })
-            )
-            .padding(12)
-            .style(|_theme| {
-                iced::widget::container::Style {
-                    background: Some(iced::Background::Color(Color::from_rgb(0.098, 0.529, 0.329))),
-                    text_color: Some(Color::WHITE),
-                    border: iced::Border {
-                        color: Color::from_rgb(0.122, 0.655, 0.408),
-                        width: 1.0,
-                        radius: 6.0.into(),
-                    },
-                    shadow: iced::Shadow {
-                        color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
-                        offset: iced::Vector::new(0.0, 4.0),
-                        blur_radius: 8.0,
-                    },
-                    snap: false,
+            let toast = container(text("✓ Text copied to clipboard").size(16).style(|_theme| {
+                iced::widget::text::Style {
+                    color: Some(Color::WHITE),
                 }
+            }))
+            .padding(12)
+            .style(|_theme| iced::widget::container::Style {
+                background: Some(iced::Background::Color(Color::from_rgb(
+                    0.098, 0.529, 0.329,
+                ))),
+                text_color: Some(Color::WHITE),
+                border: iced::Border {
+                    color: Color::from_rgb(0.122, 0.655, 0.408),
+                    width: 1.0,
+                    radius: 6.0.into(),
+                },
+                shadow: iced::Shadow {
+                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
+                    offset: iced::Vector::new(0.0, 4.0),
+                    blur_radius: 8.0,
+                },
+                snap: false,
             });
 
-            content_column = content_column.push(container(toast).width(Length::Fill).align_x(Alignment::Center));
+            content_column = content_column.push(
+                container(toast)
+                    .width(Length::Fill)
+                    .align_x(Alignment::Center),
+            );
         }
 
         let content = content_column;
@@ -381,7 +391,10 @@ impl InteractiveOcrView {
             .into()
     }
 
-    fn render_image_with_overlay(&self, _ocr_result: &OcrResult) -> Element<'_, InteractiveOcrMessage> {
+    fn render_image_with_overlay(
+        &self,
+        _ocr_result: &OcrResult,
+    ) -> Element<'_, InteractiveOcrMessage> {
         let image_viewer = image::viewer(self.image_handle.clone())
             .width(Length::Fill)
             .height(Length::Fill);
@@ -393,21 +406,15 @@ impl InteractiveOcrView {
             selected_indices: self.selected_chars.clone(),
         };
 
-        let overlay_canvas = container(
-            canvas(ocr_overlay)
+        let overlay_canvas =
+            container(canvas(ocr_overlay).width(Length::Fill).height(Length::Fill))
                 .width(Length::Fill)
-                .height(Length::Fill)
-        )
-        .width(Length::Fill)
-        .height(Length::Fill);
+                .height(Length::Fill);
 
-        stack![
-            image_viewer,
-            overlay_canvas
-        ]
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .into()
+        stack![image_viewer, overlay_canvas]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
     }
 }
 
@@ -469,13 +476,13 @@ impl canvas::Program<InteractiveOcrMessage> for OcrOverlay {
 
             let rect_path = canvas::Path::rectangle(
                 Point::new(scaled_x, scaled_y),
-                Size::new(scaled_width, scaled_height)
+                Size::new(scaled_width, scaled_height),
             );
 
             frame.fill_rectangle(
                 Point::new(scaled_x, scaled_y),
                 Size::new(scaled_width, scaled_height),
-                fill_color
+                fill_color,
             );
 
             if is_selected {
@@ -483,7 +490,7 @@ impl canvas::Program<InteractiveOcrMessage> for OcrOverlay {
                     &rect_path,
                     canvas::Stroke::default()
                         .with_color(Color::from_rgb(0.2, 0.9, 0.2))
-                        .with_width(stroke_width)
+                        .with_width(stroke_width),
                 );
             }
         }
@@ -553,12 +560,18 @@ impl canvas::Program<InteractiveOcrMessage> for OcrOverlay {
 
                             let char_rect = Rectangle::new(
                                 Point::new(scaled_x, scaled_y),
-                                Size::new(scaled_width, scaled_height)
+                                Size::new(scaled_width, scaled_height),
                             );
 
                             if char_rect.contains(cursor_position) {
-                                log::debug!("[OCR_OVERLAY] Started drag at char {}: '{}'", idx, char_pos.character);
-                                return Some(canvas::Action::publish(InteractiveOcrMessage::StartDrag(idx)));
+                                log::debug!(
+                                    "[OCR_OVERLAY] Started drag at char {}: '{}'",
+                                    idx,
+                                    char_pos.character
+                                );
+                                return Some(canvas::Action::publish(
+                                    InteractiveOcrMessage::StartDrag(idx),
+                                ));
                             }
                         }
                     }
@@ -574,11 +587,13 @@ impl canvas::Program<InteractiveOcrMessage> for OcrOverlay {
 
                             let char_rect = Rectangle::new(
                                 Point::new(scaled_x, scaled_y),
-                                Size::new(scaled_width, scaled_height)
+                                Size::new(scaled_width, scaled_height),
                             );
 
                             if char_rect.contains(cursor_position) {
-                                return Some(canvas::Action::publish(InteractiveOcrMessage::UpdateDrag(idx)));
+                                return Some(canvas::Action::publish(
+                                    InteractiveOcrMessage::UpdateDrag(idx),
+                                ));
                             }
                         }
                     }

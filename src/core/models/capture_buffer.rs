@@ -1,5 +1,5 @@
-use iced::widget::image;
 use anyhow::Result;
+use iced::widget::image;
 
 #[derive(Clone)]
 pub struct CaptureBuffer {
@@ -36,7 +36,11 @@ impl CaptureBuffer {
 
         Self {
             _scale_factor: scale_factor,
-            image_handle: image::Handle::from_rgba(width_pixels, height_pixels, raw_rgba_data.clone()),
+            image_handle: image::Handle::from_rgba(
+                width_pixels,
+                height_pixels,
+                raw_rgba_data.clone(),
+            ),
             width: width_pixels,
             height: height_pixels,
             raw_data: raw_rgba_data,
@@ -55,7 +59,12 @@ impl CaptureBuffer {
 
         log::debug!(
             "[CAPTURE_BUFFER] Cropping region: {}x{} at ({}, {}) from {}x{}",
-            crop_width, crop_height, x, y, self.width, self.height
+            crop_width,
+            crop_height,
+            x,
+            y,
+            self.width,
+            self.height
         );
 
         let mut cropped_data = Vec::with_capacity((crop_width * crop_height * 4) as usize);

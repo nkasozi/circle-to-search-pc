@@ -1,7 +1,7 @@
 mod capture_buffer;
-mod screen_region;
 mod ocr;
+mod screen_region;
 
 pub use capture_buffer::CaptureBuffer;
-pub use screen_region::ScreenRegion;
 pub use ocr::{DetectedText, DetectedWord, OcrResult};
+pub use screen_region::ScreenRegion;

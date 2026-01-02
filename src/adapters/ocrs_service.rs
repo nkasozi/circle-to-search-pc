@@ -40,7 +40,9 @@ impl OcrsService {
         let models_dir = base_dir.join("models/ocrs");
         log::debug!("[OCRS] Models directory: {:?}", models_dir);
 
-        tokio::fs::create_dir_all(&models_dir).await.context("Failed to create models directory")?;
+        tokio::fs::create_dir_all(&models_dir)
+            .await
+            .context("Failed to create models directory")?;
 
         let detection_model_path = models_dir.join("text-detection.rten");
         let recognition_model_path = models_dir.join("text-recognition.rten");
@@ -70,9 +72,16 @@ impl OcrsService {
     async fn ensure_model_exists(path: &Path, url: &str) -> Result<()> {
         if !path.exists() {
             log::info!("[OCRS] Downloading model from {} to {:?}", url, path);
-            let response = reqwest::get(url).await.context("Failed to download model")?;
-            let bytes = response.bytes().await.context("Failed to get model bytes")?;
-            tokio::fs::write(path, bytes).await.context("Failed to write model file")?;
+            let response = reqwest::get(url)
+                .await
+                .context("Failed to download model")?;
+            let bytes = response
+                .bytes()
+                .await
+                .context("Failed to get model bytes")?;
+            tokio::fs::write(path, bytes)
+                .await
+                .context("Failed to write model file")?;
             log::info!("[OCRS] Model downloaded successfully");
         }
         Ok(())

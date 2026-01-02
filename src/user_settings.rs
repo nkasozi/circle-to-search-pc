@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use std::fmt;
+use std::path::PathBuf;
 
 use crate::global_constants;
 
@@ -57,7 +57,10 @@ impl UserSettings {
         let settings: UserSettings = serde_json::from_str(&contents)?;
 
         log::info!("[SETTINGS] Loaded settings from {:?}", settings_path);
-        log::debug!("[SETTINGS] Image search URL: {}", settings.image_search_url_template);
+        log::debug!(
+            "[SETTINGS] Image search URL: {}",
+            settings.image_search_url_template
+        );
         log::debug!("[SETTINGS] Capture hotkey: {}", settings.capture_hotkey);
 
         Ok(settings)

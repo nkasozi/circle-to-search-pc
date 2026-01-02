@@ -1,6 +1,8 @@
 use iced::mouse;
-use iced::widget::{canvas, container, image, stack, button, row, text};
-use iced::{Color, Element, Length, Point, Rectangle, Size, Border, Background, Shadow, Vector, Alignment};
+use iced::widget::{button, canvas, container, image, row, stack, text};
+use iced::{
+    Alignment, Background, Border, Color, Element, Length, Point, Rectangle, Shadow, Size, Vector,
+};
 
 use crate::core::models::CaptureBuffer;
 
@@ -49,23 +51,21 @@ impl CaptureView {
 
     pub fn update(&mut self, message: CaptureViewMessage) {
         match message {
-            CaptureViewMessage::MousePressed(point) => {
-                match self.draw_mode {
-                    DrawMode::Rectangle => {
-                        self.selection_start = Some(point);
-                        self.selection_current = Some(point);
+            CaptureViewMessage::MousePressed(point) => match self.draw_mode {
+                DrawMode::Rectangle => {
+                    self.selection_start = Some(point);
+                    self.selection_current = Some(point);
+                    self.is_selecting = true;
+                }
+                DrawMode::Freeform => {
+                    if !self.is_selecting {
+                        self.freeform_points.clear();
+                        self.freeform_points.push(point);
                         self.is_selecting = true;
-                    }
-                    DrawMode::Freeform => {
-                        if !self.is_selecting {
-                            self.freeform_points.clear();
-                            self.freeform_points.push(point);
-                            self.is_selecting = true;
-                            self.is_shape_closed = false;
-                        }
+                        self.is_shape_closed = false;
                     }
                 }
-            }
+            },
             CaptureViewMessage::MouseMoved(point) => {
                 if self.is_selecting {
                     match self.draw_mode {
@@ -77,7 +77,9 @@ impl CaptureView {
 
                             if self.freeform_points.len() > 10 {
                                 let first = self.freeform_points[0];
-                                let distance = ((point.x - first.x).powi(2) + (point.y - first.y).powi(2)).sqrt();
+                                let distance = ((point.x - first.x).powi(2)
+                                    + (point.y - first.y).powi(2))
+                                .sqrt();
                                 if distance < 20.0 {
                                     self.is_shape_closed = true;
                                     self.is_selecting = false;
@@ -92,7 +94,8 @@ impl CaptureView {
                     if self.freeform_points.len() > 2 {
                         let first = self.freeform_points[0];
                         let last = *self.freeform_points.last().unwrap();
-                        let distance = ((last.x - first.x).powi(2) + (last.y - first.y).powi(2)).sqrt();
+                        let distance =
+                            ((last.x - first.x).powi(2) + (last.y - first.y).powi(2)).sqrt();
                         if distance < 30.0 {
                             self.is_shape_closed = true;
                         }
@@ -128,7 +131,8 @@ impl CaptureView {
 
         let show_ui = !self.is_selecting;
 
-        let mut layers: Vec<Element<'_, CaptureViewMessage>> = vec![screenshot_viewer.into(), overlay_canvas.into()];
+        let mut layers: Vec<Element<'_, CaptureViewMessage>> =
+            vec![screenshot_viewer.into(), overlay_canvas.into()];
 
         if show_ui {
             let status_message = if self.calculate_selection_rectangle().is_some() {
@@ -136,22 +140,16 @@ impl CaptureView {
             } else {
                 match self.draw_mode {
                     DrawMode::Rectangle => "Click and drag to select a region",
-                    DrawMode::Freeform => "Click and drag to draw a freeform shape"
+                    DrawMode::Freeform => "Click and drag to draw a freeform shape",
                 }
             };
 
-            let status_banner = container(
-                text(status_message)
-                    .size(16)
-                    .style(|_theme| {
-                        text::Style {
-                            color: Some(Color::WHITE),
-                        }
-                    })
-            )
-            .padding([12, 24])
-            .style(|_theme| {
-                container::Style {
+            let status_banner =
+                container(text(status_message).size(16).style(|_theme| text::Style {
+                    color: Some(Color::WHITE),
+                }))
+                .padding([12, 24])
+                .style(|_theme| container::Style {
                     background: Some(Background::Color(Color::from_rgba(0.1, 0.1, 0.1, 0.85))),
                     border: Border {
                         color: Color::from_rgba(0.3, 0.6, 1.0, 0.8),
@@ -165,12 +163,16 @@ impl CaptureView {
                     },
                     text_color: None,
                     snap: false,
-                }
-            });
+                });
 
             let status_positioned = container(status_banner)
                 .width(Length::Fill)
-                .padding(iced::Padding { top: 80.0, right: 20.0, bottom: 0.0, left: 0.0 })
+                .padding(iced::Padding {
+                    top: 80.0,
+                    right: 20.0,
+                    bottom: 0.0,
+                    left: 0.0,
+                })
                 .align_x(Alignment::End);
 
             let rect_btn = button(text("⬜ Rectangle"))
@@ -187,32 +189,33 @@ impl CaptureView {
                 })
                 .on_press(CaptureViewMessage::SetDrawMode(DrawMode::Freeform));
 
-            let toolbar = container(
-                row![rect_btn, freeform_btn]
-                    .spacing(8)
-                    .padding(8)
-            )
-            .style(|_theme| {
-                container::Style {
-                    background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.85))),
-                    border: Border {
-                        color: Color::from_rgba(0.4, 0.4, 0.4, 0.9),
-                        width: 1.0,
-                        radius: 8.0.into(),
-                    },
-                    shadow: Shadow {
-                        color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
-                        offset: Vector::new(0.0, 4.0),
-                        blur_radius: 12.0,
-                    },
-                    text_color: None,
-                    snap: false,
-                }
-            });
+            let toolbar =
+                container(row![rect_btn, freeform_btn].spacing(8).padding(8)).style(|_theme| {
+                    container::Style {
+                        background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.85))),
+                        border: Border {
+                            color: Color::from_rgba(0.4, 0.4, 0.4, 0.9),
+                            width: 1.0,
+                            radius: 8.0.into(),
+                        },
+                        shadow: Shadow {
+                            color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
+                            offset: Vector::new(0.0, 4.0),
+                            blur_radius: 12.0,
+                        },
+                        text_color: None,
+                        snap: false,
+                    }
+                });
 
             let toolbar_positioned = container(toolbar)
                 .width(Length::Fill)
-                .padding(iced::Padding { top: 80.0, right: 20.0, bottom: 0.0, left: 0.0 })
+                .padding(iced::Padding {
+                    top: 80.0,
+                    right: 20.0,
+                    bottom: 0.0,
+                    left: 0.0,
+                })
                 .align_x(Alignment::Start);
 
             layers.push(status_positioned.into());
@@ -227,7 +230,12 @@ impl CaptureView {
             .into()
     }
 
-    fn toolbar_button_style(&self, _theme: &iced::Theme, status: button::Status, is_active: bool) -> button::Style {
+    fn toolbar_button_style(
+        &self,
+        _theme: &iced::Theme,
+        status: button::Status,
+        is_active: bool,
+    ) -> button::Style {
         let base_color = if is_active {
             Color::from_rgb(0.3, 0.6, 1.0)
         } else {
@@ -251,13 +259,11 @@ impl CaptureView {
                 snap: false,
             },
             button::Status::Hovered => button::Style {
-                background: Some(Background::Color(
-                    if is_active {
-                        Color::from_rgb(0.4, 0.7, 1.0)
-                    } else {
-                        Color::from_rgba(0.5, 0.5, 0.5, 0.9)
-                    }
-                )),
+                background: Some(Background::Color(if is_active {
+                    Color::from_rgb(0.4, 0.7, 1.0)
+                } else {
+                    Color::from_rgba(0.5, 0.5, 0.5, 0.9)
+                })),
                 text_color: Color::WHITE,
                 border: Border {
                     color: Color::from_rgb(0.5, 0.8, 1.0),
@@ -268,13 +274,11 @@ impl CaptureView {
                 snap: false,
             },
             button::Status::Pressed => button::Style {
-                background: Some(Background::Color(
-                    if is_active {
-                        Color::from_rgb(0.2, 0.5, 0.9)
-                    } else {
-                        Color::from_rgba(0.3, 0.3, 0.3, 0.9)
-                    }
-                )),
+                background: Some(Background::Color(if is_active {
+                    Color::from_rgb(0.2, 0.5, 0.9)
+                } else {
+                    Color::from_rgba(0.3, 0.3, 0.3, 0.9)
+                })),
                 text_color: Color::WHITE,
                 border: Border {
                     color: Color::from_rgb(0.3, 0.6, 0.9),
@@ -300,18 +304,16 @@ impl CaptureView {
 
     fn calculate_selection_rectangle(&self) -> Option<(Point, Size)> {
         match self.draw_mode {
-            DrawMode::Rectangle => {
-                match (self.selection_start, self.selection_current) {
-                    (Some(start), Some(current)) => {
-                        let x = start.x.min(current.x);
-                        let y = start.y.min(current.y);
-                        let width = (start.x - current.x).abs();
-                        let height = (start.y - current.y).abs();
-                        Some((Point::new(x, y), Size::new(width, height)))
-                    }
-                    _ => None,
+            DrawMode::Rectangle => match (self.selection_start, self.selection_current) {
+                (Some(start), Some(current)) => {
+                    let x = start.x.min(current.x);
+                    let y = start.y.min(current.y);
+                    let width = (start.x - current.x).abs();
+                    let height = (start.y - current.y).abs();
+                    Some((Point::new(x, y), Size::new(width, height)))
                 }
-            }
+                _ => None,
+            },
             DrawMode::Freeform => {
                 if self.freeform_points.is_empty() {
                     return None;
