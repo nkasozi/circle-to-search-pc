@@ -30,6 +30,7 @@ pub struct InteractiveOcrView {
     drag_start: Option<usize>,
     is_selecting: bool,
     search_state: SearchState,
+    theme_mode: crate::user_settings::ThemeMode,
 }
 
 #[derive(Debug, Clone)]
@@ -46,7 +47,7 @@ pub enum InteractiveOcrMessage {
 }
 
 impl InteractiveOcrView {
-    pub fn build(capture_buffer: CaptureBuffer) -> Self {
+    pub fn build(capture_buffer: CaptureBuffer, theme_mode: crate::user_settings::ThemeMode) -> Self {
         log::info!(
             "[INTERACTIVE_OCR] Creating view for cropped image: {}x{}",
             capture_buffer.width,
@@ -64,6 +65,7 @@ impl InteractiveOcrView {
             drag_start: None,
             is_selecting: false,
             search_state: SearchState::Idle,
+            theme_mode,
         }
     }
 
@@ -321,7 +323,7 @@ impl InteractiveOcrView {
             .height(Length::Fill)
             .align_x(Alignment::Center);
 
-        let theme = crate::app_theme::get_theme(&crate::user_settings::ThemeMode::Dark);
+        let theme = crate::app_theme::get_theme(&self.theme_mode);
 
         container(content)
             .width(Length::Fill)

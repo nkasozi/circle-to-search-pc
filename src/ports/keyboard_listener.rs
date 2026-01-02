@@ -45,9 +45,12 @@ impl GlobalKeyboardListener {
 
     fn spawn_keyboard_listener_thread(mut keyboard_sender: mpsc::Sender<rdev::Event>) {
         std::thread::spawn(move || {
-            let _ = listen(move |event| {
+            log::info!("{} Starting global keyboard listener thread", LOG_TAG_KEYBOARD);
+            if let Err(e) = listen(move |event| {
                 let _ = keyboard_sender.try_send(event);
-            });
+            }) {
+                log::error!("{} Failed to start keyboard listener: {:?}. This is expected if another instance is already running.", LOG_TAG_KEYBOARD, e);
+            }
         });
     }
 }

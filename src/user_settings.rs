@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::fmt;
 
 use crate::global_constants;
 
@@ -7,6 +8,15 @@ use crate::global_constants;
 pub enum ThemeMode {
     Dark,
     Light,
+}
+
+impl fmt::Display for ThemeMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ThemeMode::Dark => write!(f, "Dark"),
+            ThemeMode::Light => write!(f, "Light"),
+        }
+    }
 }
 
 impl Default for ThemeMode {

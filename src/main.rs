@@ -10,13 +10,16 @@ mod user_settings;
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::fs;
+use std::io::Write;
 
-use iced::{Alignment, Background, Element, Length, Point, Rectangle, Size, Task};
+use iced::{Alignment, Background, Color, Element, Length, Point, Rectangle, Size, Task};
 use iced::daemon;
 use iced::widget::{button, column, container, row, text};
 use iced::window::{self, Id};
 use mouse_position::mouse_position::Mouse;
 use base64::Engine;
+use sysinfo::{System, Pid, ProcessRefreshKind, ProcessesToUpdate};
 
 use core::models::{CaptureBuffer, OcrResult, ScreenRegion};
 use core::interfaces::adapters::OcrService;
@@ -36,8 +39,47 @@ impl OcrService for DummyOcrService {
     }
 }
 
+fn ensure_single_instance() {
+    let lock_file_path = std::env::temp_dir().join("circle-to-search-pc.lock");
+
+    if lock_file_path.exists() {
+        if let Ok(pid_string) = fs::read_to_string(&lock_file_path) {
+            if let Ok(pid) = pid_string.trim().parse::<u32>() {
+                log::info!("[INSTANCE] Found existing instance with PID: {}", pid);
+
+                let mut system = System::new();
+                system.refresh_processes_specifics(
+                    ProcessesToUpdate::All,
+                    true,
+                    ProcessRefreshKind::nothing()
+                );
+
+                if let Some(process) = system.process(Pid::from_u32(pid)) {
+                    log::warn!("[INSTANCE] Killing existing instance (PID: {})", pid);
+                    process.kill();
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                } else {
+                    log::info!("[INSTANCE] Previous instance (PID: {}) is not running, cleaning up stale lock file", pid);
+                }
+
+                let _ = fs::remove_file(&lock_file_path);
+            }
+        }
+    }
+
+    let current_pid = std::process::id();
+    if let Err(e) = fs::File::create(&lock_file_path)
+        .and_then(|mut file| file.write_all(current_pid.to_string().as_bytes())) {
+        log::error!("[INSTANCE] Failed to create lock file: {}", e);
+    } else {
+        log::info!("[INSTANCE] Created lock file with PID: {}", current_pid);
+    }
+}
+
 fn main() -> iced::Result {
     env_logger::init();
+
+    ensure_single_instance();
 
     daemon(CircleApp::new, CircleApp::update, CircleApp::view)
         .subscription(CircleApp::subscription)
@@ -48,6 +90,7 @@ enum AppWindow {
     Main,
     CaptureOverlay(CaptureView),
     InteractiveOcr(presentation::InteractiveOcrView),
+    Settings,
 }
 
 struct CircleApp {
@@ -59,6 +102,8 @@ struct CircleApp {
     main_window_id: Option<Id>,
     status: String,
     settings: user_settings::UserSettings,
+    settings_window_id: Option<Id>,
+    temp_settings: Option<user_settings::UserSettings>,
 }
 
 #[derive(Clone)]
@@ -81,6 +126,12 @@ enum Message {
     CloseWindow(Id),
     WindowClosed(Id),
     Keyboard(GlobalKeyboardEvent),
+    OpenSettings,
+    UpdateSearchUrl(String),
+    UpdateHotkey(String),
+    UpdateTheme(user_settings::ThemeMode),
+    SaveSettings,
+    RestartApp,
 }
 
 impl std::fmt::Debug for Message {
@@ -103,6 +154,12 @@ impl std::fmt::Debug for Message {
             Message::CloseWindow(id) => write!(f, "CloseWindow({:?})", id),
             Message::WindowClosed(id) => write!(f, "WindowClosed({:?})", id),
             Message::Keyboard(event) => write!(f, "Keyboard({:?})", event),
+            Message::OpenSettings => write!(f, "OpenSettings"),
+            Message::UpdateSearchUrl(_) => write!(f, "UpdateSearchUrl"),
+            Message::UpdateHotkey(_) => write!(f, "UpdateHotkey"),
+            Message::UpdateTheme(_) => write!(f, "UpdateTheme"),
+            Message::SaveSettings => write!(f, "SaveSettings"),
+            Message::RestartApp => write!(f, "RestartApp"),
         }
     }
 }
@@ -125,7 +182,9 @@ impl CircleApp {
                 windows: HashMap::new(),
                 main_window_id: None,
                 status: "Initializing OCR service...".to_string(),
-                settings,
+                settings: settings.clone(),
+                settings_window_id: None,
+                temp_settings: None,
             },
             Task::batch(vec![
                 Task::done(Message::OpenMainWindow),
@@ -158,7 +217,7 @@ impl CircleApp {
                 log::debug!("[APP] Opening main window");
                 if self.windows.is_empty() {
                     let (id, task) = window::open(window::Settings {
-                        size: Size::new(700.0, 500.0),
+                        size: Size::new(700.0, 600.0),
                         position: window::Position::Centered,
                         resizable: false,
                         ..Default::default()
@@ -207,12 +266,12 @@ impl CircleApp {
 
                     match screen_capturer.capture_screen_at_region(&region) {
                         Ok(capture_buffer) => {
-                            log::info!("[APP] Screen captured successfully");
+                            log::info!("[APP] Screen captured successfully, buffer size: {}x{}", capture_buffer.width, capture_buffer.height);
                             Message::OpenCaptureOverlay(mouse_x, mouse_y, capture_buffer)
                         }
                         Err(e) => {
-                            log::error!("[APP] Screen capture failed: {}", e);
-                            Message::CaptureError(format!("Error: {}", e))
+                            log::error!("[APP] Screen capture failed: {}. If multiple instances are running, this may be expected.", e);
+                            Message::CaptureError(format!("Capture failed: {}. Try closing other instances.", e))
                         }
                     }
                 });
@@ -326,7 +385,7 @@ impl CircleApp {
                             ..Default::default()
                         });
 
-                        let view = presentation::InteractiveOcrView::build(buffer.clone());
+                        let view = presentation::InteractiveOcrView::build(buffer.clone(), self.settings.theme_mode.clone());
                         self.windows.insert(id, AppWindow::InteractiveOcr(view));
                         self.status = "Processing OCR...".to_string();
 
@@ -518,8 +577,79 @@ impl CircleApp {
             Message::WindowClosed(id) => {
                 log::info!("[APP] Window closed: {:?}", id);
                 self.windows.remove(&id);
+                if Some(id) == self.settings_window_id {
+                    self.settings_window_id = None;
+                    self.temp_settings = None;
+                }
                 log::debug!("[APP] Removed window from tracking. Remaining: {}", self.windows.len());
                 self.status = "Ready - Press Alt+Shift+S to capture".to_string();
+            }
+            Message::OpenSettings => {
+                log::info!("[APP] Opening settings window");
+                if self.settings_window_id.is_some() {
+                    log::warn!("[APP] Settings window already open");
+                    return Task::none();
+                }
+
+                let (id, task) = window::open(window::Settings {
+                    size: Size::new(500.0, 550.0),
+                    position: window::Position::Centered,
+                    resizable: false,
+                    ..Default::default()
+                });
+
+                self.settings_window_id = Some(id);
+                self.temp_settings = Some(self.settings.clone());
+                self.windows.insert(id, AppWindow::Settings);
+                log::info!("[APP] Settings window created with ID: {:?}", id);
+
+                return task.discard();
+            }
+            Message::UpdateSearchUrl(url) => {
+                if let Some(ref mut temp) = self.temp_settings {
+                    temp.image_search_url_template = url;
+                }
+            }
+            Message::UpdateHotkey(hotkey) => {
+                if let Some(ref mut temp) = self.temp_settings {
+                    temp.capture_hotkey = hotkey;
+                }
+            }
+            Message::UpdateTheme(theme) => {
+                if let Some(ref mut temp) = self.temp_settings {
+                    temp.theme_mode = theme;
+                }
+            }
+            Message::SaveSettings => {
+                if let Some(temp) = self.temp_settings.take() {
+                    let hotkey_changed = temp.capture_hotkey != self.settings.capture_hotkey;
+
+                    self.settings = temp.clone();
+                    if let Err(e) = self.settings.save() {
+                        log::error!("[APP] Failed to save settings: {}", e);
+                        self.status = format!("Failed to save settings: {}", e);
+                    } else {
+                        log::info!("[APP] Settings saved successfully");
+                        self.status = "Settings saved".to_string();
+
+                        if hotkey_changed {
+                            log::info!("[APP] Hotkey changed, restarting app...");
+                            return Task::done(Message::RestartApp);
+                        }
+                    }
+                }
+
+                if let Some(id) = self.settings_window_id {
+                    return window::close(id);
+                }
+            }
+            Message::RestartApp => {
+                log::info!("[APP] Restarting application...");
+                let exe_path = std::env::current_exe().expect("Failed to get executable path");
+                std::process::Command::new(exe_path)
+                    .spawn()
+                    .expect("Failed to restart app");
+                std::process::exit(0);
             }
         }
         log::debug!("[APP] No task to return, ending update");
@@ -537,6 +667,7 @@ impl CircleApp {
             Some(AppWindow::InteractiveOcr(ocr_view)) => {
                 ocr_view.render_ui().map(move |msg| Message::InteractiveOcrMessage(window_id, msg))
             }
+            Some(AppWindow::Settings) => self.view_settings_window(),
             None => text("Loading...").into(),
         }
     }
@@ -545,63 +676,122 @@ impl CircleApp {
         let theme = app_theme::get_theme(&self.settings.theme_mode);
 
         let title = text("Circle to Search - Desktop Edition")
-            .size(40)
-            .width(Length::Fill)
-            .align_x(Alignment::Center);
-
-        let instructions = column![
-            text("").size(30),
-            text("How to Use:").size(28).align_x(Alignment::Center),
-            text("").size(10),
-            text("• Click the button below to capture your screen").size(16).align_x(Alignment::Center),
-            text("• Or press Alt+Shift+S anywhere on your computer").size(16).align_x(Alignment::Center),
-            text("• Press Escape to close overlay").size(16).align_x(Alignment::Center),
-            text("").size(30),
-        ]
-        .spacing(8)
-        .width(Length::Fill)
-        .align_x(Alignment::Center);
+            .size(40);
 
         let btn = button(text("📸 Capture Screen"))
-        .height(Length::Fixed(100.0))
-        //.width(Length::Fixed(100.0))
-        .padding([5, 60])
-        .style(|theme, status| {
-            app_theme::primary_button_style(theme, status)
-        })
-        .on_press_with(|| {
-            log::info!("[BUTTON] Capture Screen button clicked");
-            Message::CaptureScreen
-        });
+            .padding([18, 40])
+            .style(|theme, status| {
+                app_theme::primary_button_style(theme, status)
+            })
+            .on_press(Message::CaptureScreen);
 
-        let status_display = row![
-            text("Status: ").size(18),
-            text(&self.status).size(18)
-        ]
-        .spacing(10)
-        .width(Length::Fill)
-        .align_y(Alignment::Center);
-
-        let status_container = container(status_display)
-            .width(Length::Fill)
-            .align_x(Alignment::Center);
+        let settings_btn = button(text("⚙️ Settings").size(20))
+            .padding([18, 40])
+            .style(|theme, status| {
+                app_theme::purple_button_style(theme, status)
+            })
+            .on_press(Message::OpenSettings);
 
         let content = column![
             title,
-            instructions,
-            container(btn).width(Length::Fill).align_x(Alignment::Center),
             text("").size(20),
-            status_container
+            text("How to Use:").size(18),
+            text("• Click the button below to capture your screen"),
+            text("• Or press Alt+Shift+S anywhere on your computer"),
+            text("• Press Escape to close overlay"),
+            text("").size(20),
+            btn,
+            text("").size(10),
+            text(format!("Status: {}", &self.status)),
+            text("").size(20),
+            settings_btn,
         ]
-            .spacing(20)
-            .padding(50)
-            .width(Length::Fill)
-            .align_x(Alignment::Center);
+        .spacing(10)
+        .padding(50)
+        .align_x(Alignment::Center);
 
         container(content)
             .width(Length::Fill)
             .height(Length::Fill)
-            .center(Length::Fill)
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
+            .style(move |_theme| {
+                let palette = theme.palette();
+                iced::widget::container::Style {
+                    background: Some(Background::Color(palette.background)),
+                    text_color: Some(palette.text),
+                    ..Default::default()
+                }
+            })
+            .into()
+    }
+
+    fn view_settings_window(&self) -> Element<'_, Message> {
+        use iced::widget::{text_input, pick_list};
+
+        let theme = app_theme::get_theme(&self.settings.theme_mode);
+        let temp = self.temp_settings.as_ref().unwrap_or(&self.settings);
+
+        let title = text("Settings")
+            .size(32)
+            .width(Length::Fill)
+            .align_x(Alignment::Center);
+
+        let search_url_label = text("Image Search URL Template:").size(16);
+        let search_url_input = text_input("https://lens.google.com/uploadbyurl?url={}", &temp.image_search_url_template)
+            .on_input(Message::UpdateSearchUrl)
+            .padding(10);
+
+        let hotkey_label = text("Capture Hotkey:").size(16);
+        let hotkey_input = text_input("Alt+Shift+S", &temp.capture_hotkey)
+            .on_input(Message::UpdateHotkey)
+            .padding(10);
+        let hotkey_warning = text("⚠️ Changing hotkey requires app restart")
+            .size(12)
+            .style(|theme: &iced::Theme| {
+                iced::widget::text::Style {
+                    color: Some(Color::from_rgb(1.0, 0.7, 0.0)),
+                }
+            });
+
+        let theme_label = text("Theme:").size(16);
+        let theme_picker = pick_list(
+            vec![user_settings::ThemeMode::Dark, user_settings::ThemeMode::Light],
+            Some(temp.theme_mode.clone()),
+            Message::UpdateTheme
+        )
+        .padding(10);
+
+        let save_btn = button(text("💾 Save Settings"))
+            .padding([15, 40])
+            .style(|theme, status| {
+                app_theme::primary_button_style(theme, status)
+            })
+            .on_press(Message::SaveSettings);
+
+        let content = column![
+            title,
+            text("").size(20),
+            search_url_label,
+            search_url_input,
+            text("").size(10),
+            hotkey_label,
+            hotkey_input,
+            hotkey_warning,
+            text("").size(10),
+            theme_label,
+            theme_picker,
+            text("").size(30),
+            save_btn,
+        ]
+        .spacing(8)
+        .padding(30)
+        .width(Length::Fill)
+        .align_x(Alignment::Center);
+
+        container(content)
+            .width(Length::Fill)
+            .height(Length::Fill)
             .style(move |_theme| {
                 let palette = theme.palette();
                 iced::widget::container::Style {

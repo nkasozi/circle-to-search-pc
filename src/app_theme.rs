@@ -93,67 +93,6 @@ pub fn primary_button_style(_theme: &Theme, status: button::Status) -> button::S
     }
 }
 
-pub fn success_button_style(_theme: &Theme, status: button::Status) -> button::Style {
-    match status {
-        button::Status::Active => button::Style {
-            background: Some(Background::Color(Color::from_rgb(0.2, 0.8, 0.4))),
-            text_color: Color::WHITE,
-            border: Border {
-                color: Color::from_rgb(0.3, 0.9, 0.5),
-                width: 2.0,
-                radius: 12.0.into(),
-            },
-            shadow: Shadow {
-                color: Color::from_rgba(0.0, 0.0, 0.0, 0.3),
-                offset: Vector::new(0.0, 4.0),
-                blur_radius: 8.0,
-            },
-            snap: false,
-        },
-        button::Status::Hovered => button::Style {
-            background: Some(Background::Color(Color::from_rgb(0.3, 0.9, 0.5))),
-            text_color: Color::WHITE,
-            border: Border {
-                color: Color::from_rgb(0.4, 1.0, 0.6),
-                width: 2.0,
-                radius: 12.0.into(),
-            },
-            shadow: Shadow {
-                color: Color::from_rgba(0.2, 0.8, 0.4, 0.4),
-                offset: Vector::new(0.0, 6.0),
-                blur_radius: 12.0,
-            },
-            snap: false,
-        },
-        button::Status::Pressed => button::Style {
-            background: Some(Background::Color(Color::from_rgb(0.1, 0.7, 0.3))),
-            text_color: Color::WHITE,
-            border: Border {
-                color: Color::from_rgb(0.2, 0.8, 0.4),
-                width: 2.0,
-                radius: 12.0.into(),
-            },
-            shadow: Shadow {
-                color: Color::from_rgba(0.0, 0.0, 0.0, 0.2),
-                offset: Vector::new(0.0, 2.0),
-                blur_radius: 4.0,
-            },
-            snap: false,
-        },
-        button::Status::Disabled => button::Style {
-            background: Some(Background::Color(Color::from_rgb(0.3, 0.3, 0.3))),
-            text_color: Color::from_rgb(0.5, 0.5, 0.5),
-            border: Border {
-                color: Color::from_rgb(0.4, 0.4, 0.4),
-                width: 2.0,
-                radius: 12.0.into(),
-            },
-            shadow: Shadow::default(),
-            snap: false,
-        },
-    }
-}
-
 pub fn purple_button_style(_theme: &Theme, status: button::Status) -> button::Style {
     match status {
         button::Status::Active => button::Style {
