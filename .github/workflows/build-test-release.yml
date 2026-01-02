@@ -48,9 +48,9 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get install -y libxcb-shape0-dev libxcb-xfixes0-dev libxdo-dev
-
-      - name: Build
+        sudo apt-get install -y libxcb-shape0-dev libxcb-xfixes0-dev libxdo-dev \
+          libglib2.0-dev libgtk-3-dev libpango1.0-dev libcairo2-dev \
+          libatk1.0-dev libgdk-pixbuf2.0-dev
         run: cargo build --verbose
 
   build-and-release:
@@ -112,7 +112,9 @@ jobs:
       - name: Install system dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          sudo apt-get install -y libxcb-shape0-dev libxcb-xfixes0-dev libxdo-dev
+          sudo apt-get install -y libxcb-shape0-dev libxcb-xfixes0-dev libxdo-dev \
+            libglib2.0-dev libgtk-3-dev libpango1.0-dev libcairo2-dev \
+            libatk1.0-dev libgdk-pixbuf2.0-dev
 
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
