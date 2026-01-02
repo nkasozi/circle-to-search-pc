@@ -31,6 +31,7 @@ pub struct InteractiveOcrView {
     is_selecting: bool,
     search_state: SearchState,
     theme_mode: crate::user_settings::ThemeMode,
+    show_toast: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -44,6 +45,7 @@ pub enum InteractiveOcrMessage {
     SearchUploading,
     SearchCompleted,
     SearchFailed(String),
+    HideToast,
 }
 
 impl InteractiveOcrView {
@@ -66,6 +68,7 @@ impl InteractiveOcrView {
             is_selecting: false,
             search_state: SearchState::Idle,
             theme_mode,
+            show_toast: false,
         }
     }
 
@@ -116,6 +119,8 @@ impl InteractiveOcrView {
 
     pub fn update(&mut self, message: InteractiveOcrMessage) {
         match message {
+            InteractiveOcrMessage::Close => {
+            }
             InteractiveOcrMessage::StartDrag(char_idx) => {
                 if !self.is_selecting {
                     log::debug!("[INTERACTIVE_OCR] Starting new selection at char {}", char_idx);
@@ -157,6 +162,7 @@ impl InteractiveOcrView {
                         log::error!("[INTERACTIVE_OCR] Failed to copy to clipboard: {}", e);
                     } else {
                         log::info!("[INTERACTIVE_OCR] Text copied to clipboard");
+                        self.show_toast = true;
                     }
                 }
             }
@@ -180,7 +186,9 @@ impl InteractiveOcrView {
                 self.search_state = SearchState::Failed(error.clone());
                 self.search_state = SearchState::Idle;
             }
-            _ => {}
+            InteractiveOcrMessage::HideToast => {
+                self.show_toast = false;
+            }
         }
     }
 
@@ -316,12 +324,46 @@ impl InteractiveOcrView {
             .width(Length::Fill)
             .align_x(Alignment::Center);
 
-        let content = column![title, image_with_overlay, buttons]
+        let mut content_column = column![title, image_with_overlay, buttons]
             .spacing(12)
             .padding(15)
             .width(Length::Fill)
             .height(Length::Fill)
             .align_x(Alignment::Center);
+
+        if self.show_toast {
+            let toast = container(
+                text("✓ Text copied to clipboard")
+                    .size(16)
+                    .style(|_theme| {
+                        iced::widget::text::Style {
+                            color: Some(Color::WHITE),
+                        }
+                    })
+            )
+            .padding(12)
+            .style(|_theme| {
+                iced::widget::container::Style {
+                    background: Some(iced::Background::Color(Color::from_rgb(0.098, 0.529, 0.329))),
+                    text_color: Some(Color::WHITE),
+                    border: iced::Border {
+                        color: Color::from_rgb(0.122, 0.655, 0.408),
+                        width: 1.0,
+                        radius: 6.0.into(),
+                    },
+                    shadow: iced::Shadow {
+                        color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
+                        offset: iced::Vector::new(0.0, 4.0),
+                        blur_radius: 8.0,
+                    },
+                    snap: false,
+                }
+            });
+
+            content_column = content_column.push(container(toast).width(Length::Fill).align_x(Alignment::Center));
+        }
+
+        let content = content_column;
 
         let theme = crate::app_theme::get_theme(&self.theme_mode);
 

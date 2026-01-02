@@ -15,7 +15,7 @@ use std::io::Write;
 
 use iced::{Alignment, Background, Color, Element, Length, Point, Rectangle, Size, Task};
 use iced::daemon;
-use iced::widget::{button, column, container, row, text};
+use iced::widget::{button, column, container, text};
 use iced::window::{self, Id};
 use mouse_position::mouse_position::Mouse;
 use base64::Engine;
@@ -472,6 +472,12 @@ impl CircleApp {
                             return Task::done(Message::PerformImageSearch(window_id, buffer));
                         }
                     }
+                    presentation::InteractiveOcrMessage::CopySelected => {
+                        return Task::future(async move {
+                            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                            Message::InteractiveOcrMessage(window_id, presentation::InteractiveOcrMessage::HideToast)
+                        });
+                    }
                     _ => {}
                 }
             }
@@ -748,7 +754,7 @@ impl CircleApp {
             .padding(10);
         let hotkey_warning = text("⚠️ Changing hotkey requires app restart")
             .size(12)
-            .style(|theme: &iced::Theme| {
+            .style(|_theme: &iced::Theme| {
                 iced::widget::text::Style {
                     color: Some(Color::from_rgb(1.0, 0.7, 0.0)),
                 }

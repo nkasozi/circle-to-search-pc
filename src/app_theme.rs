@@ -40,7 +40,7 @@ pub fn primary_button_style(_theme: &Theme, status: button::Status) -> button::S
             border: Border {
                 color: Color::from_rgb(0.098, 0.529, 0.329),
                 width: 2.0,
-                radius: 12.0.into(),
+                radius: 6.0.into(),
             },
             shadow: Shadow {
                 color: Color::from_rgba(0.0, 0.0, 0.0, 0.3),
@@ -55,7 +55,7 @@ pub fn primary_button_style(_theme: &Theme, status: button::Status) -> button::S
             border: Border {
                 color: Color::from_rgb(0.122, 0.655, 0.408),
                 width: 2.0,
-                radius: 12.0.into(),
+                radius: 6.0.into(),
             },
             shadow: Shadow {
                 color: Color::from_rgba(0.098, 0.529, 0.329, 0.4),
@@ -70,14 +70,14 @@ pub fn primary_button_style(_theme: &Theme, status: button::Status) -> button::S
             border: Border {
                 color: Color::from_rgb(0.078, 0.420, 0.263),
                 width: 2.0,
-                radius: 12.0.into(),
+                radius: 6.0.into(),
             },
             shadow: Shadow {
-                color: Color::from_rgba(0.0, 0.0, 0.0, 0.2),
-                offset: Vector::new(0.0, 2.0),
-                blur_radius: 4.0,
+                color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
+                offset: Vector::new(0.0, 1.0),
+                blur_radius: 2.0,
             },
-            snap: false,
+            snap: true,
         },
         button::Status::Disabled => button::Style {
             background: Some(Background::Color(Color::from_rgb(0.3, 0.3, 0.3))),
@@ -85,7 +85,7 @@ pub fn primary_button_style(_theme: &Theme, status: button::Status) -> button::S
             border: Border {
                 color: Color::from_rgb(0.4, 0.4, 0.4),
                 width: 2.0,
-                radius: 12.0.into(),
+                radius: 6.0.into(),
             },
             shadow: Shadow::default(),
             snap: false,
@@ -101,7 +101,7 @@ pub fn purple_button_style(_theme: &Theme, status: button::Status) -> button::St
             border: Border {
                 color: Color::from_rgb(0.435, 0.259, 0.757),
                 width: 2.0,
-                radius: 12.0.into(),
+                radius: 6.0.into(),
             },
             shadow: Shadow {
                 color: Color::from_rgba(0.0, 0.0, 0.0, 0.3),
@@ -116,7 +116,7 @@ pub fn purple_button_style(_theme: &Theme, status: button::Status) -> button::St
             border: Border {
                 color: Color::from_rgb(0.541, 0.341, 0.847),
                 width: 2.0,
-                radius: 12.0.into(),
+                radius: 6.0.into(),
             },
             shadow: Shadow {
                 color: Color::from_rgba(0.435, 0.259, 0.757, 0.4),
@@ -131,14 +131,14 @@ pub fn purple_button_style(_theme: &Theme, status: button::Status) -> button::St
             border: Border {
                 color: Color::from_rgb(0.357, 0.208, 0.627),
                 width: 2.0,
-                radius: 12.0.into(),
+                radius: 6.0.into(),
             },
             shadow: Shadow {
-                color: Color::from_rgba(0.0, 0.0, 0.0, 0.2),
-                offset: Vector::new(0.0, 2.0),
-                blur_radius: 4.0,
+                color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
+                offset: Vector::new(0.0, 1.0),
+                blur_radius: 2.0,
             },
-            snap: false,
+            snap: true,
         },
         button::Status::Disabled => button::Style {
             background: Some(Background::Color(Color::from_rgb(0.3, 0.3, 0.3))),
@@ -146,7 +146,7 @@ pub fn purple_button_style(_theme: &Theme, status: button::Status) -> button::St
             border: Border {
                 color: Color::from_rgb(0.4, 0.4, 0.4),
                 width: 2.0,
-                radius: 12.0.into(),
+                radius: 6.0.into(),
             },
             shadow: Shadow::default(),
             snap: false,
@@ -162,7 +162,7 @@ pub fn danger_button_style(_theme: &Theme, status: button::Status) -> button::St
             border: Border {
                 color: Color::from_rgb(1.0, 0.4, 0.4),
                 width: 2.0,
-                radius: 12.0.into(),
+                radius: 6.0.into(),
             },
             shadow: Shadow {
                 color: Color::from_rgba(0.0, 0.0, 0.0, 0.3),
@@ -177,7 +177,7 @@ pub fn danger_button_style(_theme: &Theme, status: button::Status) -> button::St
             border: Border {
                 color: Color::from_rgb(1.0, 0.5, 0.5),
                 width: 2.0,
-                radius: 12.0.into(),
+                radius: 6.0.into(),
             },
             shadow: Shadow {
                 color: Color::from_rgba(0.9, 0.3, 0.3, 0.4),
@@ -192,14 +192,14 @@ pub fn danger_button_style(_theme: &Theme, status: button::Status) -> button::St
             border: Border {
                 color: Color::from_rgb(0.9, 0.3, 0.3),
                 width: 2.0,
-                radius: 12.0.into(),
+                radius: 6.0.into(),
             },
             shadow: Shadow {
-                color: Color::from_rgba(0.0, 0.0, 0.0, 0.2),
-                offset: Vector::new(0.0, 2.0),
-                blur_radius: 4.0,
+                color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
+                offset: Vector::new(0.0, 1.0),
+                blur_radius: 2.0,
             },
-            snap: false,
+            snap: true,
         },
         button::Status::Disabled => button::Style {
             background: Some(Background::Color(Color::from_rgb(0.3, 0.3, 0.3))),
@@ -207,7 +207,7 @@ pub fn danger_button_style(_theme: &Theme, status: button::Status) -> button::St
             border: Border {
                 color: Color::from_rgb(0.4, 0.4, 0.4),
                 width: 2.0,
-                radius: 12.0.into(),
+                radius: 6.0.into(),
             },
             shadow: Shadow::default(),
             snap: false,
