@@ -1,3 +1,4 @@
+#[derive(Debug)]
 pub struct ScreenRegion {
     pub x_position: i32,
     pub y_position: i32,

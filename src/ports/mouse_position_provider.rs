@@ -37,3 +37,52 @@ impl MousePositionProvider for SystemMousePositionProvider {
         self.convert_mouse_result_to_region(mouse_position_result)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_initialize_creates_provider() {
+        let provider = SystemMousePositionProvider::initialize();
+
+        assert!(std::mem::size_of_val(&provider) == 0);
+    }
+
+    #[test]
+    fn test_convert_mouse_result_to_region_with_valid_position_returns_ok() {
+        let provider = SystemMousePositionProvider::initialize();
+        let mouse_result = Mouse::Position { x: 100, y: 200 };
+
+        let result = provider.convert_mouse_result_to_region(mouse_result);
+
+        assert!(result.is_ok());
+        let region = result.unwrap();
+        assert_eq!(region.x_position, 100);
+        assert_eq!(region.y_position, 200);
+    }
+
+    #[test]
+    fn test_convert_mouse_result_to_region_with_error_returns_err() {
+        let provider = SystemMousePositionProvider::initialize();
+        let mouse_result = Mouse::Error;
+
+        let result = provider.convert_mouse_result_to_region(mouse_result);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("mouse position"));
+    }
+
+    #[test]
+    fn test_convert_mouse_result_to_region_handles_negative_coordinates() {
+        let provider = SystemMousePositionProvider::initialize();
+        let mouse_result = Mouse::Position { x: -50, y: -100 };
+
+        let result = provider.convert_mouse_result_to_region(mouse_result);
+
+        assert!(result.is_ok());
+        let region = result.unwrap();
+        assert_eq!(region.x_position, -50);
+        assert_eq!(region.y_position, -100);
+    }
+}

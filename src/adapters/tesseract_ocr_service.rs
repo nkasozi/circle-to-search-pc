@@ -101,3 +101,39 @@ impl OcrService for TesseractOcrService {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_creates_service_successfully() {
+        let result = TesseractOcrService::build();
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_extract_text_from_image_returns_ocr_result() {
+        let service = TesseractOcrService::build().unwrap();
+        let test_image = DynamicImage::new_rgb8(100, 100);
+
+        let result = service.extract_text_from_image(&test_image).await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_extract_text_filters_low_confidence_words() {
+        let service = TesseractOcrService::build().unwrap();
+        let test_image = DynamicImage::new_rgb8(50, 50);
+
+        let result = service.extract_text_from_image(&test_image).await;
+
+        assert!(result.is_ok());
+        let ocr_result = result.unwrap();
+        for text_block in ocr_result.text_blocks {
+            assert!(text_block.confidence >= 0.30);
+        }
+    }
+}

@@ -769,3 +769,136 @@ impl AppOrchestrator {
             .into()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::models::OcrResult;
+
+    struct MockScreenCapturer;
+    impl ScreenCapturer for MockScreenCapturer {
+        fn capture_screen_at_region(&self, _region: &ScreenRegion) -> anyhow::Result<CaptureBuffer> {
+            let raw_data = vec![255u8; 100 * 100 * 4];
+            Ok(CaptureBuffer::build_from_raw_data(1.0, 100, 100, raw_data))
+        }
+    }
+
+    struct MockMouseProvider;
+    impl MousePositionProvider for MockMouseProvider {
+        fn get_current_mouse_position(&self) -> Result<ScreenRegion, String> {
+            Ok(ScreenRegion::at_coordinates(0, 0))
+        }
+    }
+
+    struct MockOcrService;
+    #[async_trait::async_trait]
+    impl OcrService for MockOcrService {
+        async fn extract_text_from_image(&self, _image: &image::DynamicImage) -> anyhow::Result<OcrResult> {
+            Ok(OcrResult {
+                text_blocks: vec![],
+                full_text: "test".to_string(),
+            })
+        }
+    }
+
+    struct MockSearchProvider;
+    #[async_trait::async_trait]
+    impl ReverseImageSearchProvider for MockSearchProvider {
+        async fn perform_search(&self, _buffer: &CaptureBuffer) -> anyhow::Result<String> {
+            Ok("https://test.com/search".to_string())
+        }
+    }
+
+    fn create_test_orchestrator() -> AppOrchestrator {
+        AppOrchestrator::build(
+            Arc::new(MockScreenCapturer),
+            Arc::new(MockMouseProvider),
+            Arc::new(MockOcrService),
+            Arc::new(MockSearchProvider),
+            user_settings::UserSettings::default(),
+        )
+    }
+
+    #[test]
+    fn test_build_creates_orchestrator_with_correct_initial_state() {
+        let orchestrator = create_test_orchestrator();
+
+        assert_eq!(orchestrator.windows.len(), 0);
+        assert!(orchestrator.main_window_id.is_none());
+        assert!(orchestrator.settings_window_id.is_none());
+        assert!(orchestrator.temp_settings.is_none());
+        assert!(!orchestrator.status.is_empty());
+    }
+
+    #[test]
+    fn test_handle_capture_error_updates_status() {
+        let mut orchestrator = create_test_orchestrator();
+        let error_message = "Test error".to_string();
+
+        let _ = orchestrator.handle_capture_error(error_message.clone());
+
+        assert_eq!(orchestrator.status, error_message);
+    }
+
+    #[test]
+    fn test_handle_ocr_service_ready_updates_service() {
+        let mut orchestrator = create_test_orchestrator();
+        let new_service = Arc::new(MockOcrService) as Arc<dyn OcrService>;
+
+        let _ = orchestrator.handle_ocr_service_ready(new_service);
+
+        assert!(orchestrator.status.contains("Ready"));
+    }
+
+    #[test]
+    fn test_handle_ocr_service_failed_updates_status() {
+        let mut orchestrator = create_test_orchestrator();
+        let error = "OCR initialization failed".to_string();
+
+        let _ = orchestrator.handle_ocr_service_failed(error.clone());
+
+        assert!(orchestrator.status.contains("OCR initialization failed"));
+    }
+
+    #[test]
+    fn test_update_settings_modifies_temp_settings() {
+        let mut orchestrator = create_test_orchestrator();
+        orchestrator.temp_settings = Some(user_settings::UserSettings::default());
+
+        let new_url = "https://new.search.com?q={}".to_string();
+        let _ = orchestrator.update(OrchestratorMessage::UpdateSearchUrl(new_url.clone()));
+
+        assert_eq!(orchestrator.temp_settings.unwrap().image_search_url_template, new_url);
+    }
+
+    #[test]
+    fn test_update_hotkey_modifies_temp_settings() {
+        let mut orchestrator = create_test_orchestrator();
+        orchestrator.temp_settings = Some(user_settings::UserSettings::default());
+
+        let new_hotkey = "Ctrl+Shift+C".to_string();
+        let _ = orchestrator.update(OrchestratorMessage::UpdateHotkey(new_hotkey.clone()));
+
+        assert_eq!(orchestrator.temp_settings.unwrap().capture_hotkey, new_hotkey);
+    }
+
+    #[test]
+    fn test_update_theme_modifies_temp_settings() {
+        let mut orchestrator = create_test_orchestrator();
+        orchestrator.temp_settings = Some(user_settings::UserSettings::default());
+
+        let _ = orchestrator.update(OrchestratorMessage::UpdateTheme(user_settings::ThemeMode::Light));
+
+        assert!(matches!(orchestrator.temp_settings.unwrap().theme_mode, user_settings::ThemeMode::Light));
+    }
+
+    #[test]
+    fn test_get_window_title_returns_correct_title() {
+        let orchestrator = create_test_orchestrator();
+        let id = Id::unique();
+
+        let title = orchestrator.get_window_title(id);
+
+        assert_eq!(title, "Circle to Search");
+    }
+}
