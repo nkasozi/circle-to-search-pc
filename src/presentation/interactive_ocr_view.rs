@@ -246,7 +246,8 @@ impl InteractiveOcrView {
 
         let title = text(status_text)
             .size(20)
-            .width(Length::Fill);
+            .width(Length::Fill)
+            .align_x(Alignment::Center);
 
         let image_with_overlay = if let Some(ref ocr_result) = self.ocr_result {
             self.render_image_with_overlay(ocr_result)
@@ -263,7 +264,10 @@ impl InteractiveOcrView {
 
         if !self.selected_chars.is_empty() {
             let copy_btn = button(text("📋 Copy"))
-                .padding([10, 20])
+                .padding([12, 24])
+                .style(|theme, status| {
+                    crate::app_theme::purple_button_style(theme, status)
+                })
                 .on_press(InteractiveOcrMessage::CopySelected);
 
             button_row = button_row.push(copy_btn);
@@ -280,14 +284,20 @@ impl InteractiveOcrView {
         };
 
         let mut search_btn = button(text(search_button_text))
-            .padding([10, 20]);
+            .padding([12, 24])
+            .style(|theme, status| {
+                crate::app_theme::primary_button_style(theme, status)
+            });
 
         if !is_searching {
             search_btn = search_btn.on_press(InteractiveOcrMessage::SearchSelected);
         }
 
         let close_btn = button(text("✖ Close (Esc)"))
-            .padding([10, 20])
+            .padding([12, 24])
+            .style(|theme, status| {
+                crate::app_theme::danger_button_style(theme, status)
+            })
             .on_press(InteractiveOcrMessage::Close);
 
         button_row = button_row.push(search_btn).push(close_btn);
@@ -303,9 +313,19 @@ impl InteractiveOcrView {
             .height(Length::Fill)
             .align_x(Alignment::Center);
 
+        let theme = crate::app_theme::get_theme(&crate::user_settings::ThemeMode::Dark);
+
         container(content)
             .width(Length::Fill)
             .height(Length::Fill)
+            .style(move |_theme| {
+                let palette = theme.palette();
+                iced::widget::container::Style {
+                    background: Some(iced::Background::Color(palette.background)),
+                    text_color: Some(palette.text),
+                    ..Default::default()
+                }
+            })
             .into()
     }
 

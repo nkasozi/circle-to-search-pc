@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod adapters;
+mod app_theme;
 mod core;
 mod global_constants;
 mod ports;
@@ -10,7 +11,7 @@ mod user_settings;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use iced::{Alignment, Element, Length, Point, Rectangle, Size, Task};
+use iced::{Alignment, Background, Element, Length, Point, Rectangle, Size, Task};
 use iced::daemon;
 use iced::widget::{button, column, container, row, text};
 use iced::window::{self, Id};
@@ -526,6 +527,8 @@ impl CircleApp {
     }
 
     fn view(&self, window_id: Id) -> Element<'_, Message> {
+        let _theme = app_theme::get_theme(&self.settings.theme_mode);
+
         match self.windows.get(&window_id) {
             Some(AppWindow::Main) => self.view_main_window(),
             Some(AppWindow::CaptureOverlay(capture_view)) => {
@@ -539,28 +542,33 @@ impl CircleApp {
     }
 
     fn view_main_window(&self) -> Element<'_, Message> {
+        let theme = app_theme::get_theme(&self.settings.theme_mode);
+
         let title = text("Circle to Search - Desktop Edition")
-            .size(36)
-            .width(Length::Fill);
+            .size(40)
+            .width(Length::Fill)
+            .align_x(Alignment::Center);
 
         let instructions = column![
-            text("").size(20),
-            text("How to Use:").size(24),
-            text(""),
-            text("• Click the button below to capture your screen"),
-            text("• Or press Alt+Shift+S anywhere on your computer"),
-            text("• Press Escape to close overlay"),
-            text(""),
+            text("").size(30),
+            text("How to Use:").size(28).align_x(Alignment::Center),
+            text("").size(10),
+            text("• Click the button below to capture your screen").size(16).align_x(Alignment::Center),
+            text("• Or press Alt+Shift+S anywhere on your computer").size(16).align_x(Alignment::Center),
+            text("• Press Escape to close overlay").size(16).align_x(Alignment::Center),
+            text("").size(30),
         ]
         .spacing(8)
-        .width(Length::Fill);
+        .width(Length::Fill)
+        .align_x(Alignment::Center);
 
-        let btn = button(
-            text("📸 Capture Screen")
-                .size(24)
-                .width(Length::Fill)
-        )
-        .padding([20, 40])
+        let btn = button(text("📸 Capture Screen"))
+        .height(Length::Fixed(100.0))
+        //.width(Length::Fixed(100.0))
+        .padding([5, 60])
+        .style(|theme, status| {
+            app_theme::primary_button_style(theme, status)
+        })
         .on_press_with(|| {
             log::info!("[BUTTON] Capture Screen button clicked");
             Message::CaptureScreen
@@ -570,9 +578,21 @@ impl CircleApp {
             text("Status: ").size(18),
             text(&self.status).size(18)
         ]
-        .spacing(10);
+        .spacing(10)
+        .width(Length::Fill)
+        .align_y(Alignment::Center);
 
-        let content = column![title, instructions, btn, text("").size(20), status_display]
+        let status_container = container(status_display)
+            .width(Length::Fill)
+            .align_x(Alignment::Center);
+
+        let content = column![
+            title,
+            instructions,
+            container(btn).width(Length::Fill).align_x(Alignment::Center),
+            text("").size(20),
+            status_container
+        ]
             .spacing(20)
             .padding(50)
             .width(Length::Fill)
@@ -582,6 +602,14 @@ impl CircleApp {
             .width(Length::Fill)
             .height(Length::Fill)
             .center(Length::Fill)
+            .style(move |_theme| {
+                let palette = theme.palette();
+                iced::widget::container::Style {
+                    background: Some(Background::Color(palette.background)),
+                    text_color: Some(palette.text),
+                    ..Default::default()
+                }
+            })
             .into()
     }
 

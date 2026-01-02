@@ -3,10 +3,23 @@ use std::path::PathBuf;
 
 use crate::global_constants;
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ThemeMode {
+    Dark,
+    Light,
+}
+
+impl Default for ThemeMode {
+    fn default() -> Self {
+        ThemeMode::Dark
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserSettings {
     pub image_search_url_template: String,
     pub capture_hotkey: String,
+    pub theme_mode: ThemeMode,
 }
 
 impl Default for UserSettings {
@@ -14,6 +27,7 @@ impl Default for UserSettings {
         Self {
             image_search_url_template: global_constants::DEFAULT_IMAGE_SEARCH_URL.to_string(),
             capture_hotkey: global_constants::DEFAULT_CAPTURE_HOTKEY.to_string(),
+            theme_mode: ThemeMode::default(),
         }
     }
 }
