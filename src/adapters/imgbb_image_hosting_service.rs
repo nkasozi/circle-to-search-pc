@@ -69,3 +69,62 @@ impl ImageHostingService for ImgbbImageHostingService {
         Ok(image_url)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_buffer() -> CaptureBuffer {
+        let raw_data = vec![255u8; 10 * 10 * 4];
+        CaptureBuffer::build_from_raw_data(1.0, 10, 10, raw_data)
+    }
+
+    #[test]
+    fn test_new_creates_service() {
+        let service = ImgbbImageHostingService::new();
+
+        assert!(std::mem::size_of_val(&service) == 0);
+    }
+
+    #[tokio::test]
+    async fn test_save_buffer_to_temp_file_creates_file_at_temp_location() {
+        let service = ImgbbImageHostingService::new();
+        let buffer = create_test_buffer();
+
+        let result = service.save_buffer_to_temp_file(&buffer).await;
+
+        assert!(result.is_ok());
+        let path = result.unwrap();
+        assert!(path.to_string_lossy().contains("circle_to_search_image.png"));
+
+        if path.exists() {
+            std::fs::remove_file(path).ok();
+        }
+    }
+
+    #[tokio::test]
+    async fn test_save_buffer_to_temp_file_returns_error_for_invalid_buffer() {
+        let service = ImgbbImageHostingService::new();
+        let invalid_raw_data = vec![255u8; 50];
+        let invalid_buffer = CaptureBuffer::build_from_raw_data(1.0, 10, 10, invalid_raw_data);
+
+        let result = service.save_buffer_to_temp_file(&invalid_buffer).await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_save_buffer_to_temp_file_can_be_called_multiple_times() {
+        let service = ImgbbImageHostingService::new();
+        let buffer1 = create_test_buffer();
+        let buffer2 = create_test_buffer();
+
+        let result1 = service.save_buffer_to_temp_file(&buffer1).await;
+        assert!(result1.is_ok());
+
+        let result2 = service.save_buffer_to_temp_file(&buffer2).await;
+        assert!(result2.is_ok());
+
+        assert_eq!(result1.unwrap(), result2.unwrap());
+    }
+}

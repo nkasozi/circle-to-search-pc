@@ -27,3 +27,32 @@ impl ScreenRegion {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_at_coordinates_creates_region_with_correct_position() {
+        let region = ScreenRegion::at_coordinates(100, 200);
+
+        assert_eq!(region.x_position, 100);
+        assert_eq!(region.y_position, 200);
+    }
+
+    #[test]
+    fn test_at_coordinates_handles_negative_coordinates() {
+        let region = ScreenRegion::at_coordinates(-50, -100);
+
+        assert_eq!(region.x_position, -50);
+        assert_eq!(region.y_position, -100);
+    }
+
+    #[test]
+    fn test_default_origin_creates_region_at_zero() {
+        let region = ScreenRegion::default_origin();
+
+        assert_eq!(region.x_position, 0);
+        assert_eq!(region.y_position, 0);
+    }
+}
