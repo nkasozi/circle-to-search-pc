@@ -31,7 +31,7 @@ pub struct InteractiveOcrView {
     is_selecting: bool,
     search_state: SearchState,
     theme_mode: crate::user_settings::ThemeMode,
-    show_toast: bool,
+    copy_confirmation: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -72,7 +72,7 @@ impl InteractiveOcrView {
             is_selecting: false,
             search_state: SearchState::Idle,
             theme_mode,
-            show_toast: false,
+            copy_confirmation: false,
         }
     }
 
@@ -175,9 +175,10 @@ impl InteractiveOcrView {
                         .and_then(|mut clipboard| clipboard.set_text(&selected_text))
                     {
                         log::error!("[INTERACTIVE_OCR] Failed to copy to clipboard: {}", e);
+                        self.copy_confirmation = false;
                     } else {
                         log::info!("[INTERACTIVE_OCR] Text copied to clipboard");
-                        self.show_toast = true;
+                        self.copy_confirmation = true;
                     }
                 }
             }
@@ -202,7 +203,7 @@ impl InteractiveOcrView {
                 self.search_state = SearchState::Idle;
             }
             InteractiveOcrMessage::HideToast => {
-                self.show_toast = false;
+                self.copy_confirmation = false;
             }
             InteractiveOcrMessage::SelectAll => {
                 log::info!("[INTERACTIVE_OCR] Selecting all {} characters", self.char_positions.len());
@@ -299,6 +300,48 @@ impl InteractiveOcrView {
                 .into()
         };
 
+        let status_banner_text = if self.copy_confirmation {
+            "✓ Text copied to clipboard"
+        } else if self.selected_chars.is_empty() {
+            "Click on first character, then last character to select text. Press Ctrl+A to select all"
+        } else {
+            "Click on another character to extend selection or click Copy to copy selected text"
+        };
+
+        let status_banner = container(
+            text(status_banner_text)
+                .size(16)
+                .style(|_theme| iced::widget::text::Style {
+                    color: Some(Color::WHITE),
+                }),
+        )
+        .padding([12, 24])
+        .width(Length::Fill)
+        .align_x(Alignment::Center)
+        .style(move |_theme| iced::widget::container::Style {
+            background: Some(iced::Background::Color(if self.copy_confirmation {
+                Color::from_rgba(0.098, 0.529, 0.329, 0.85)
+            } else {
+                Color::from_rgba(0.1, 0.1, 0.1, 0.85)
+            })),
+            border: iced::Border {
+                color: if self.copy_confirmation {
+                    Color::from_rgba(0.122, 0.655, 0.408, 0.8)
+                } else {
+                    Color::from_rgba(0.3, 0.6, 1.0, 0.8)
+                },
+                width: 1.0,
+                radius: 8.0.into(),
+            },
+            shadow: iced::Shadow {
+                color: Color::from_rgba(0.0, 0.0, 0.0, 0.6),
+                offset: iced::Vector::new(0.0, 4.0),
+                blur_radius: 12.0,
+            },
+            text_color: None,
+            snap: false,
+        });
+
         let mut button_row = row![].spacing(10).align_y(Alignment::Center);
 
         if !self.selected_chars.is_empty() {
@@ -339,44 +382,12 @@ impl InteractiveOcrView {
             .width(Length::Fill)
             .align_x(Alignment::Center);
 
-        let mut content_column = column![title, image_with_overlay, buttons]
+        let content_column = column![title, image_with_overlay, status_banner, buttons]
             .spacing(12)
             .padding(15)
             .width(Length::Fill)
             .height(Length::Fill)
             .align_x(Alignment::Center);
-
-        if self.show_toast {
-            let toast = container(text("✓ Text copied to clipboard").size(16).style(|_theme| {
-                iced::widget::text::Style {
-                    color: Some(Color::WHITE),
-                }
-            }))
-            .padding(12)
-            .style(|_theme| iced::widget::container::Style {
-                background: Some(iced::Background::Color(Color::from_rgb(
-                    0.098, 0.529, 0.329,
-                ))),
-                text_color: Some(Color::WHITE),
-                border: iced::Border {
-                    color: Color::from_rgb(0.122, 0.655, 0.408),
-                    width: 1.0,
-                    radius: 6.0.into(),
-                },
-                shadow: iced::Shadow {
-                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
-                    offset: iced::Vector::new(0.0, 4.0),
-                    blur_radius: 8.0,
-                },
-                snap: false,
-            });
-
-            content_column = content_column.push(
-                container(toast)
-                    .width(Length::Fill)
-                    .align_x(Alignment::Center),
-            );
-        }
 
         let content = content_column;
 
