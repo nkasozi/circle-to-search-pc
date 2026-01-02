@@ -275,6 +275,40 @@ src/
     └── mod.rs
 ```
 
+## CI/CD Pipeline
+
+The project uses GitHub Actions for continuous integration and deployment:
+
+### Automated Testing
+
+On every push and pull request to `main`/`master`:
+
+- Builds on Ubuntu, macOS, and Windows
+- Installs Tesseract and system dependencies
+- Runs complete test suite (40+ tests)
+- Caches dependencies for faster builds
+
+### Automated Releases
+
+On version tags (e.g., `v1.0.0`):
+
+- Builds release binaries for all platforms
+- Creates platform-specific installers:
+  - **Linux**: `circle-to-search-pc-linux-x86_64.AppImage` (portable, no installation required)
+  - **macOS Intel**: `circle-to-search-pc-macos-x86_64.dmg` (drag-and-drop installer)
+  - **macOS Apple Silicon**: `circle-to-search-pc-macos-aarch64.dmg` (drag-and-drop installer)
+  - **Windows**: `circle-to-search-pc-windows-x86_64-setup.exe` (Inno Setup installer)
+- Automatically creates GitHub release with downloadable installers
+
+### Creating a Release
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+The CI pipeline will automatically build, test, and publish the release.
+
 ## Contributing
 
 Contributions are welcome! The hexagonal architecture makes it easy to:
