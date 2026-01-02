@@ -212,11 +212,11 @@ impl CaptureView {
                 .width(Length::Fill)
                 .padding(iced::Padding {
                     top: 80.0,
-                    right: 20.0,
+                    right: 0.0,
                     bottom: 0.0,
                     left: 0.0,
                 })
-                .align_x(Alignment::Start);
+                .align_x(Alignment::Center);
 
             layers.push(status_positioned.into());
             layers.push(toolbar_positioned.into());
