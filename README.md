@@ -334,10 +334,6 @@ Contributions are welcome! The hexagonal architecture makes it easy to:
 - Add new OCR engines (implement `OcrService`)
 - Improve UI components in the presentation layer
 
-## License
-
-[Add your license here]
-
 ## Acknowledgments
 
 - Tesseract OCR for text recognition
