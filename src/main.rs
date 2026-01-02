@@ -19,7 +19,11 @@ fn main() -> iced::Result {
         log::error!("[MAIN] Failed to ensure single instance");
     }
 
-    daemon(app::CircleApp::build, app::CircleApp::handle_update, app::CircleApp::render_view)
-        .subscription(app::CircleApp::handle_subscription)
-        .run()
+    daemon(
+        app::CircleApp::build,
+        app::CircleApp::handle_update,
+        app::CircleApp::render_view,
+    )
+    .subscription(app::CircleApp::handle_subscription)
+    .run()
 }

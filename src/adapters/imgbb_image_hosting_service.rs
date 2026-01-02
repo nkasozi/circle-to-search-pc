@@ -95,7 +95,9 @@ mod tests {
 
         assert!(result.is_ok());
         let path = result.unwrap();
-        assert!(path.to_string_lossy().contains("circle_to_search_image.png"));
+        assert!(path
+            .to_string_lossy()
+            .contains("circle_to_search_image.png"));
 
         if path.exists() {
             std::fs::remove_file(path).ok();

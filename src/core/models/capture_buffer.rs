@@ -144,7 +144,10 @@ mod tests {
         let result = buffer.crop_region(10, 10, 0, 50);
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("must be greater than zero"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("must be greater than zero"));
     }
 
     #[test]
@@ -154,7 +157,10 @@ mod tests {
         let result = buffer.crop_region(10, 10, 50, 0);
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("must be greater than zero"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("must be greater than zero"));
     }
 
     #[test]

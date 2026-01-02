@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use crate::core::interfaces::adapters::{ReverseImageSearchProvider, ImageHostingService};
+use crate::core::interfaces::adapters::{ImageHostingService, ReverseImageSearchProvider};
 use crate::core::models::CaptureBuffer;
 
 pub struct GoogleLensSearchProvider {
@@ -11,7 +11,10 @@ pub struct GoogleLensSearchProvider {
 }
 
 impl GoogleLensSearchProvider {
-    pub fn new(image_hosting_service: Arc<dyn ImageHostingService>, search_url_template: String) -> Self {
+    pub fn new(
+        image_hosting_service: Arc<dyn ImageHostingService>,
+        search_url_template: String,
+    ) -> Self {
         Self {
             image_hosting_service,
             search_url_template,
@@ -67,7 +70,10 @@ mod tests {
     #[async_trait]
     impl ImageHostingService for MockImageHostingService {
         async fn upload_image(&self, _buffer: &CaptureBuffer) -> Result<String> {
-            self.uploaded_urls.lock().unwrap().push(self.return_url.clone());
+            self.uploaded_urls
+                .lock()
+                .unwrap()
+                .push(self.return_url.clone());
             Ok(self.return_url.clone())
         }
     }
@@ -79,10 +85,12 @@ mod tests {
 
     #[test]
     fn test_construct_search_url_replaces_placeholder_with_encoded_url() {
-        let mock_service = Arc::new(MockImageHostingService::new("https://example.com/image.png".to_string()));
+        let mock_service = Arc::new(MockImageHostingService::new(
+            "https://example.com/image.png".to_string(),
+        ));
         let provider = GoogleLensSearchProvider::new(
             mock_service,
-            "https://lens.google.com/uploadbyurl?url={}".to_string()
+            "https://lens.google.com/uploadbyurl?url={}".to_string(),
         );
 
         let result = provider.construct_search_url("https://test.com/my image.jpg");
@@ -94,10 +102,8 @@ mod tests {
     #[test]
     fn test_construct_search_url_handles_special_characters() {
         let mock_service = Arc::new(MockImageHostingService::new("test".to_string()));
-        let provider = GoogleLensSearchProvider::new(
-            mock_service,
-            "https://search.com?img={}".to_string()
-        );
+        let provider =
+            GoogleLensSearchProvider::new(mock_service, "https://search.com?img={}".to_string());
 
         let result = provider.construct_search_url("https://example.com/image?id=123&type=png");
 
@@ -106,12 +112,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_perform_search_calls_image_hosting_service() {
-        let mock_service = Arc::new(MockImageHostingService::new("https://hosted.com/img.png".to_string()));
+        let mock_service = Arc::new(MockImageHostingService::new(
+            "https://hosted.com/img.png".to_string(),
+        ));
         let mock_clone = Arc::clone(&mock_service);
 
         let provider = GoogleLensSearchProvider::new(
             mock_service,
-            "https://lens.google.com?url={}".to_string()
+            "https://lens.google.com?url={}".to_string(),
         );
 
         let buffer = create_test_buffer();
@@ -125,10 +133,7 @@ mod tests {
         let mock_service = Arc::new(MockImageHostingService::new("test".to_string()));
         let template = "https://custom.search?img={}".to_string();
 
-        let provider = GoogleLensSearchProvider::new(
-            mock_service,
-            template.clone()
-        );
+        let provider = GoogleLensSearchProvider::new(mock_service, template.clone());
 
         assert_eq!(provider.search_url_template, template);
     }

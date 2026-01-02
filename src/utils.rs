@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::Write;
-use sysinfo::{System, Pid, ProcessRefreshKind, ProcessesToUpdate};
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 
 pub fn ensure_single_instance() -> bool {
     let lock_file_path = std::env::temp_dir().join("circle-to-search-pc.lock");
@@ -14,7 +14,7 @@ pub fn ensure_single_instance() -> bool {
                 system.refresh_processes_specifics(
                     ProcessesToUpdate::All,
                     true,
-                    ProcessRefreshKind::nothing()
+                    ProcessRefreshKind::nothing(),
                 );
 
                 if let Some(process) = system.process(Pid::from_u32(pid)) {
@@ -32,7 +32,8 @@ pub fn ensure_single_instance() -> bool {
 
     let current_pid = std::process::id();
     if let Err(e) = fs::File::create(&lock_file_path)
-        .and_then(|mut file| file.write_all(current_pid.to_string().as_bytes())) {
+        .and_then(|mut file| file.write_all(current_pid.to_string().as_bytes()))
+    {
         log::error!("[INSTANCE] Failed to create lock file: {}", e);
         return false;
     }

@@ -90,7 +90,7 @@ mod tests {
             51.0,
             10.0,
             0.95,
-            words.clone()
+            words.clone(),
         );
 
         assert_eq!(text.content, "Hello World");
@@ -104,15 +104,7 @@ mod tests {
 
     #[test]
     fn test_detected_text_can_have_empty_words_list() {
-        let text = DetectedText::new(
-            "Test".to_string(),
-            0.0,
-            0.0,
-            20.0,
-            10.0,
-            0.85,
-            vec![]
-        );
+        let text = DetectedText::new("Test".to_string(), 0.0, 0.0, 20.0, 10.0, 0.85, vec![]);
 
         assert_eq!(text.words.len(), 0);
         assert_eq!(text.content, "Test");
