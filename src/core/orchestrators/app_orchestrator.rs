@@ -5,15 +5,13 @@ use iced::{Alignment, Background, Color, Element, Length, Point, Rectangle, Size
 use iced::widget::{button, column, container, text};
 use iced::window::{self, Id};
 use mouse_position::mouse_position::Mouse;
-use base64::Engine;
 
 use crate::core::models::{CaptureBuffer, OcrResult, ScreenRegion};
-use crate::core::interfaces::adapters::OcrService;
+use crate::core::interfaces::adapters::{OcrService, ReverseImageSearchProvider};
 use crate::core::interfaces::ports::{MousePositionProvider, ScreenCapturer};
 use crate::presentation::{CaptureView, CaptureViewMessage};
 use crate::user_settings;
 use crate::app_theme;
-use crate::global_constants;
 use crate::ports::GlobalKeyboardEvent;
 
 pub enum AppWindow {
@@ -28,6 +26,7 @@ pub struct AppOrchestrator {
     #[allow(dead_code)]
     mouse_provider: Arc<dyn MousePositionProvider>,
     ocr_service: Arc<dyn OcrService>,
+    reverse_image_search_provider: Arc<dyn ReverseImageSearchProvider>,
     windows: HashMap<Id, AppWindow>,
     main_window_id: Option<Id>,
     status: String,
@@ -99,12 +98,14 @@ impl AppOrchestrator {
         screen_capturer: Arc<dyn ScreenCapturer>,
         mouse_provider: Arc<dyn MousePositionProvider>,
         ocr_service: Arc<dyn OcrService>,
+        reverse_image_search_provider: Arc<dyn ReverseImageSearchProvider>,
         settings: user_settings::UserSettings,
     ) -> Self {
         Self {
             screen_capturer,
             mouse_provider,
             ocr_service,
+            reverse_image_search_provider,
             windows: HashMap::new(),
             main_window_id: None,
             status: "Initializing OCR service...".to_string(),
@@ -522,7 +523,7 @@ impl AppOrchestrator {
     fn handle_perform_image_search(&mut self, window_id: Id, buffer: CaptureBuffer) -> Task<OrchestratorMessage> {
         log::info!("[ORCHESTRATOR] Starting image search for window {:?}", window_id);
 
-        let search_url_template = self.settings.image_search_url_template.clone();
+        let search_provider = Arc::clone(&self.reverse_image_search_provider);
 
         Task::batch(vec![
             Task::done(OrchestratorMessage::InteractiveOcrMessage(
@@ -530,64 +531,11 @@ impl AppOrchestrator {
                 crate::presentation::InteractiveOcrMessage::SearchUploading
             )),
             Task::future(async move {
-                let search_future = async {
-                    let temp_dir = std::env::temp_dir();
-                    let image_path = temp_dir.join("circle_to_search_image.png");
-
-                    log::debug!("[SEARCH] Saving image to temp: {:?}", image_path);
-
-                    let img = ::image::DynamicImage::ImageRgba8(
-                        ::image::RgbaImage::from_raw(
-                            buffer.width,
-                            buffer.height,
-                            buffer.raw_data.clone(),
-                        )
-                        .ok_or_else(|| anyhow::anyhow!("Failed to create image from raw data"))?
-                    );
-
-                    img.save(&image_path)?;
-
-                    log::info!("[SEARCH] Uploading image to imgbb");
-
-                    let image_data = tokio::fs::read(&image_path).await?;
-                    let base64_image = base64::engine::general_purpose::STANDARD.encode(&image_data);
-
-                    let client = reqwest::Client::new();
-                    let form = reqwest::multipart::Form::new()
-                        .text("image", base64_image)
-                        .text("expiration", global_constants::IMGBB_EXPIRATION_SECONDS);
-
-                    let upload_url = format!("{}?key={}", global_constants::IMGBB_API_URL, global_constants::IMGBB_API_KEY);
-                    let response = client
-                        .post(&upload_url)
-                        .multipart(form)
-                        .send()
-                        .await?;
-
-                    let response_text = response.text().await?;
-                    log::debug!("[SEARCH] imgbb response: {}", response_text);
-
-                    let json: serde_json::Value = serde_json::from_str(&response_text)?;
-
-                    let image_url = json["data"]["url"]
-                        .as_str()
-                        .ok_or_else(|| anyhow::anyhow!("Failed to extract image URL from imgbb response"))?;
-
-                    let encoded_url = urlencoding::encode(image_url);
-                    let search_url = search_url_template.replace("{}", &encoded_url);
-
-                    log::info!("[SEARCH] Opening Google reverse image search");
-                    log::debug!("[SEARCH] Image URL: {}", image_url);
-                    log::debug!("[SEARCH] Search URL: {}", search_url);
-
-                    open::that(&search_url)?;
-
-                    Ok::<(), anyhow::Error>(())
-                };
+                let search_future = search_provider.perform_search(&buffer);
 
                 let timeout_duration = std::time::Duration::from_secs(30);
                 match tokio::time::timeout(timeout_duration, search_future).await {
-                    Ok(Ok(())) => {
+                    Ok(Ok(_search_url)) => {
                         log::info!("[ORCHESTRATOR] Image search completed successfully");
                         OrchestratorMessage::InteractiveOcrMessage(
                             window_id,

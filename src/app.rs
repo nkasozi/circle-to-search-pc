@@ -3,7 +3,7 @@ use std::sync::Arc;
 use iced::{Element, Task};
 use iced::window::Id;
 
-use crate::adapters::TesseractOcrService;
+use crate::adapters::{TesseractOcrService, GoogleLensSearchProvider, ImgbbImageHostingService};
 use crate::core::interfaces::adapters::OcrService;
 use crate::core::models::OcrResult;
 use crate::core::orchestrators::app_orchestrator::{AppOrchestrator, OrchestratorMessage};
@@ -33,10 +33,17 @@ impl CircleApp {
                 user_settings::UserSettings::default()
             });
 
+        let image_hosting_service = Arc::new(ImgbbImageHostingService::new());
+        let reverse_image_search_provider = Arc::new(GoogleLensSearchProvider::new(
+            image_hosting_service,
+            settings.image_search_url_template.clone()
+        ));
+
         let orchestrator = AppOrchestrator::build(
             Arc::new(XcapScreenCapturer::initialize()),
             Arc::new(SystemMousePositionProvider::initialize()),
             Arc::new(DummyOcrService),
+            reverse_image_search_provider,
             settings,
         );
 
