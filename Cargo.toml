@@ -3,6 +3,7 @@ name = "circle-to-search-pc"
 version = "0.1.0"
 edition = "2021"
 description = "Circle to Search for Desktop"
+build = "build.rs"
 
 [dependencies]
 anyhow = "1.0"

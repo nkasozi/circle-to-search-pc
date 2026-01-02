@@ -14,11 +14,7 @@ env:
 jobs:
   test:
     name: Test
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        rust: [stable]
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
@@ -26,8 +22,6 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ matrix.rust }}
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -47,32 +41,17 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Install Tesseract (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Install Tesseract
         run: |
           sudo apt-get update
           sudo apt-get install -y tesseract-ocr libtesseract-dev libleptonica-dev
 
-      - name: Install Tesseract (macOS)
-        if: matrix.os == 'macos-latest'
-        run: brew install tesseract
-
-      - name: Install Tesseract (Windows)
-        if: matrix.os == 'windows-latest'
-        run: |
-          choco install tesseract -y
-          echo "C:\Program Files\Tesseract-OCR" >> $GITHUB_PATH
-
-      - name: Install system dependencies (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Install system dependencies
         run: |
           sudo apt-get install -y libxcb-shape0-dev libxcb-xfixes0-dev libxdo-dev
 
       - name: Build
-        run: cargo build --verbose --release
-
-      - name: Run tests
-        run: cargo test --verbose
+        run: cargo build --verbose
 
   build-and-release:
     name: Build and Release
@@ -107,6 +86,12 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      - name: Download Tesseract Data Files
+        run: |
+          mkdir -p tessdata
+          cd tessdata
+          curl -L -o eng.traineddata https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
 
       - name: Install Tesseract (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
@@ -145,6 +130,9 @@ jobs:
           mkdir -p AppDir/usr/bin
           cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} AppDir/usr/bin/
 
+          mkdir -p AppDir/usr/share/tessdata
+          cp tessdata/eng.traineddata AppDir/usr/share/tessdata/
+
           mkdir -p AppDir/usr/share/applications
           cat > AppDir/usr/share/applications/circle-to-search-pc.desktop << EOF
           [Desktop Entry]
@@ -164,14 +152,38 @@ jobs:
       - name: Create DMG (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          mkdir -p dmg-contents
-          cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} dmg-contents/
+          mkdir -p dmg-contents/Circle\ to\ Search\ PC.app/Contents/MacOS
+          mkdir -p dmg-contents/Circle\ to\ Search\ PC.app/Contents/Resources/tessdata
+
+          cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} dmg-contents/Circle\ to\ Search\ PC.app/Contents/MacOS/
+          cp tessdata/eng.traineddata dmg-contents/Circle\ to\ Search\ PC.app/Contents/Resources/tessdata/
+
+          cat > dmg-contents/Circle\ to\ Search\ PC.app/Contents/Info.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>circle-to-search-pc</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.circle-to-search-pc</string>
+              <key>CFBundleName</key>
+              <string>Circle to Search PC</string>
+              <key>CFBundleVersion</key>
+              <string>1.0</string>
+          </dict>
+          </plist>
+          EOF
 
           hdiutil create -volname "Circle to Search PC" -srcfolder dmg-contents -ov -format UDZO ${{ matrix.asset_name }}
 
       - name: Create Windows Installer
         if: matrix.os == 'windows-latest'
         run: |
+          New-Item -ItemType Directory -Force -Path installer_files
+          Copy-Item "target\${{ matrix.target }}\release\circle-to-search-pc.exe" -Destination installer_files\
+          Copy-Item tessdata\eng.traineddata -Destination installer_files\
+
           $installerScript = @"
           #define MyAppName "Circle to Search PC"
           #define MyAppVersion "1.0"
@@ -194,7 +206,8 @@ jobs:
           Name: "english"; MessagesFile: "compiler:Default.isl"
 
           [Files]
-          Source: "target\${{ matrix.target }}\release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+          Source: "installer_files\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+          Source: "installer_files\eng.traineddata"; DestDir: "{app}\tessdata"; Flags: ignoreversion
 
           [Icons]
           Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

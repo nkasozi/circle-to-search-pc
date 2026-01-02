@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use image::DynamicImage;
 use rusty_tesseract::{Args, Image as TesseractImage};
+use std::path::PathBuf;
 
 use crate::core::interfaces::adapters::OcrService;
 use crate::core::models::{DetectedText, DetectedWord, OcrResult};
@@ -11,6 +12,30 @@ pub struct TesseractOcrService;
 impl TesseractOcrService {
     pub fn build() -> Result<Self> {
         log::info!("[TESSERACT_OCR] Initializing Tesseract OCR service");
+
+        let tessdata_path = std::env::var("TESSDATA_PREFIX")
+            .ok()
+            .map(PathBuf::from)
+            .or_else(|| {
+                let exe_dir = std::env::current_exe()
+                    .ok()?
+                    .parent()?
+                    .to_path_buf();
+                let tessdata = exe_dir.join("tessdata");
+                if tessdata.exists() {
+                    Some(exe_dir)
+                } else {
+                    None
+                }
+            });
+
+        if let Some(ref path) = tessdata_path {
+            log::info!("[TESSERACT_OCR] Using tessdata from: {:?}", path);
+            std::env::set_var("TESSDATA_PREFIX", path);
+        } else {
+            log::info!("[TESSERACT_OCR] Using system tessdata");
+        }
+
         Ok(Self)
     }
 }

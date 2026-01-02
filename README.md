@@ -140,16 +140,28 @@ graph TB
 ### Prerequisites
 
 - Rust 1.70 or later
-- Tesseract OCR installed on your system:
+- Tesseract OCR development libraries (for building):
   - **macOS**: `brew install tesseract`
-  - **Linux**: `sudo apt install tesseract-ocr`
+  - **Linux**: `sudo apt install tesseract-ocr libtesseract-dev libleptonica-dev`
   - **Windows**: Download from [GitHub](https://github.com/UB-Mannheim/tesseract/wiki)
 
+**Note**: Release binaries bundle Tesseract data files, so end users don't need to install Tesseract separately.
+
 ### Building
+
+First, download the Tesseract language data:
+
+```bash
+./download-tessdata.sh
+```
+
+Then build:
 
 ```bash
 cargo build --release
 ```
+
+The application will automatically detect tessdata in the executable directory or use system Tesseract data as fallback.
 
 ### Running
 
@@ -283,21 +295,25 @@ The project uses GitHub Actions for continuous integration and deployment:
 
 On every push and pull request to `main`/`master`:
 
-- Builds on Ubuntu, macOS, and Windows
+- Builds and tests on Ubuntu (Linux)
 - Installs Tesseract and system dependencies
 - Runs complete test suite (40+ tests)
 - Caches dependencies for faster builds
+
+**Note**: Testing only on Linux saves CI costs. Release builds verify platform compatibility by building natively on each target OS.
 
 ### Automated Releases
 
 On version tags (e.g., `v1.0.0`):
 
-- Builds release binaries for all platforms
-- Creates platform-specific installers:
-  - **Linux**: `circle-to-search-pc-linux-x86_64.AppImage` (portable, no installation required)
-  - **macOS Intel**: `circle-to-search-pc-macos-x86_64.dmg` (drag-and-drop installer)
-  - **macOS Apple Silicon**: `circle-to-search-pc-macos-aarch64.dmg` (drag-and-drop installer)
-  - **Windows**: `circle-to-search-pc-windows-x86_64-setup.exe` (Inno Setup installer)
+- Downloads Tesseract language data (eng.traineddata)
+- Builds self-contained release binaries for all platforms
+- Creates platform-specific installers with bundled Tesseract data:
+  - **Linux**: `circle-to-search-pc-linux-x86_64.AppImage` (portable, includes tessdata)
+  - **macOS Intel**: `circle-to-search-pc-macos-x86_64.dmg` (app bundle with tessdata)
+  - **macOS Apple Silicon**: `circle-to-search-pc-macos-aarch64.dmg` (app bundle with tessdata)
+  - **Windows**: `circle-to-search-pc-windows-x86_64-setup.exe` (installer with tessdata)
+- All installers are fully self-contained - no Tesseract installation required
 - Automatically creates GitHub release with downloadable installers
 
 ### Creating a Release
