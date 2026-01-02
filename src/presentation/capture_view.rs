@@ -126,49 +126,100 @@ impl CaptureView {
 
         let overlay_canvas = canvas(self).width(Length::Fill).height(Length::Fill);
 
-        let rect_btn = button(text("⬜ Rectangle"))
-            .padding([8, 16])
-            .style(move |theme: &iced::Theme, status| {
-                self.toolbar_button_style(theme, status, self.draw_mode == DrawMode::Rectangle)
-            })
-            .on_press(CaptureViewMessage::SetDrawMode(DrawMode::Rectangle));
+        let show_ui = !self.is_selecting;
 
-        let freeform_btn = button(text("✏️ Freeform"))
-            .padding([8, 16])
-            .style(move |theme: &iced::Theme, status| {
-                self.toolbar_button_style(theme, status, self.draw_mode == DrawMode::Freeform)
-            })
-            .on_press(CaptureViewMessage::SetDrawMode(DrawMode::Freeform));
+        let mut layers: Vec<Element<'_, CaptureViewMessage>> = vec![screenshot_viewer.into(), overlay_canvas.into()];
 
-        let toolbar = container(
-            row![rect_btn, freeform_btn]
-                .spacing(8)
-                .padding(8)
-        )
-        .style(|_theme| {
-            container::Style {
-                background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.85))),
-                border: Border {
-                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.9),
-                    width: 1.0,
-                    radius: 8.0.into(),
-                },
-                shadow: Shadow {
-                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
-                    offset: Vector::new(0.0, 4.0),
-                    blur_radius: 12.0,
-                },
-                text_color: None,
-                snap: false,
-            }
-        });
+        if show_ui {
+            let status_message = if self.calculate_selection_rectangle().is_some() {
+                "Press Enter to confirm selection or draw a new region"
+            } else {
+                match self.draw_mode {
+                    DrawMode::Rectangle => "Click and drag to select a region",
+                    DrawMode::Freeform => "Click and drag to draw a freeform shape"
+                }
+            };
 
-        let toolbar_positioned = container(toolbar)
-            .width(Length::Fill)
-            .padding(iced::Padding::from([20.0, 0.0]))
-            .align_x(Alignment::Center);
+            let status_banner = container(
+                text(status_message)
+                    .size(16)
+                    .style(|_theme| {
+                        text::Style {
+                            color: Some(Color::WHITE),
+                        }
+                    })
+            )
+            .padding([12, 24])
+            .style(|_theme| {
+                container::Style {
+                    background: Some(Background::Color(Color::from_rgba(0.1, 0.1, 0.1, 0.85))),
+                    border: Border {
+                        color: Color::from_rgba(0.3, 0.6, 1.0, 0.8),
+                        width: 1.0,
+                        radius: 8.0.into(),
+                    },
+                    shadow: Shadow {
+                        color: Color::from_rgba(0.0, 0.0, 0.0, 0.6),
+                        offset: Vector::new(0.0, 4.0),
+                        blur_radius: 12.0,
+                    },
+                    text_color: None,
+                    snap: false,
+                }
+            });
 
-        let content = stack![screenshot_viewer, overlay_canvas, toolbar_positioned];
+            let status_positioned = container(status_banner)
+                .width(Length::Fill)
+                .padding(iced::Padding { top: 80.0, right: 20.0, bottom: 0.0, left: 0.0 })
+                .align_x(Alignment::End);
+
+            let rect_btn = button(text("⬜ Rectangle"))
+                .padding([8, 16])
+                .style(move |theme: &iced::Theme, status| {
+                    self.toolbar_button_style(theme, status, self.draw_mode == DrawMode::Rectangle)
+                })
+                .on_press(CaptureViewMessage::SetDrawMode(DrawMode::Rectangle));
+
+            let freeform_btn = button(text("✏️ Freeform"))
+                .padding([8, 16])
+                .style(move |theme: &iced::Theme, status| {
+                    self.toolbar_button_style(theme, status, self.draw_mode == DrawMode::Freeform)
+                })
+                .on_press(CaptureViewMessage::SetDrawMode(DrawMode::Freeform));
+
+            let toolbar = container(
+                row![rect_btn, freeform_btn]
+                    .spacing(8)
+                    .padding(8)
+            )
+            .style(|_theme| {
+                container::Style {
+                    background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.85))),
+                    border: Border {
+                        color: Color::from_rgba(0.4, 0.4, 0.4, 0.9),
+                        width: 1.0,
+                        radius: 8.0.into(),
+                    },
+                    shadow: Shadow {
+                        color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
+                        offset: Vector::new(0.0, 4.0),
+                        blur_radius: 12.0,
+                    },
+                    text_color: None,
+                    snap: false,
+                }
+            });
+
+            let toolbar_positioned = container(toolbar)
+                .width(Length::Fill)
+                .padding(iced::Padding { top: 80.0, right: 20.0, bottom: 0.0, left: 0.0 })
+                .align_x(Alignment::Start);
+
+            layers.push(status_positioned.into());
+            layers.push(toolbar_positioned.into());
+        }
+
+        let content = stack(layers);
 
         container(content)
             .width(Length::Fill)
