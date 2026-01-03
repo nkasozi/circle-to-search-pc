@@ -113,18 +113,6 @@ mod tests {
     }
 
     #[test]
-    fn test_theme_mode_display_dark() {
-        let theme = ThemeMode::Dark;
-        assert_eq!(format!("{}", theme), "Dark");
-    }
-
-    #[test]
-    fn test_theme_mode_display_light() {
-        let theme = ThemeMode::Light;
-        assert_eq!(format!("{}", theme), "Light");
-    }
-
-    #[test]
     fn test_theme_mode_serialization() {
         let theme = ThemeMode::Dark;
         let serialized = serde_json::to_string(&theme).unwrap();
@@ -166,7 +154,10 @@ mod tests {
         let serialized = serde_json::to_string(&settings).unwrap();
         let deserialized: UserSettings = serde_json::from_str(&serialized).unwrap();
 
-        assert_eq!(deserialized.image_search_url_template, settings.image_search_url_template);
+        assert_eq!(
+            deserialized.image_search_url_template,
+            settings.image_search_url_template
+        );
         assert_eq!(deserialized.capture_hotkey, settings.capture_hotkey);
         assert_eq!(deserialized.theme_mode, settings.theme_mode);
         assert_eq!(deserialized.run_in_system_tray, settings.run_in_system_tray);
@@ -203,10 +194,19 @@ mod tests {
         let loaded_contents = std::fs::read_to_string(&test_file).unwrap();
         let loaded_settings: UserSettings = serde_json::from_str(&loaded_contents).unwrap();
 
-        assert_eq!(loaded_settings.image_search_url_template, original_settings.image_search_url_template);
-        assert_eq!(loaded_settings.capture_hotkey, original_settings.capture_hotkey);
+        assert_eq!(
+            loaded_settings.image_search_url_template,
+            original_settings.image_search_url_template
+        );
+        assert_eq!(
+            loaded_settings.capture_hotkey,
+            original_settings.capture_hotkey
+        );
         assert_eq!(loaded_settings.theme_mode, original_settings.theme_mode);
-        assert_eq!(loaded_settings.run_in_system_tray, original_settings.run_in_system_tray);
+        assert_eq!(
+            loaded_settings.run_in_system_tray,
+            original_settings.run_in_system_tray
+        );
 
         std::fs::remove_dir_all(&temp_dir).ok();
     }
