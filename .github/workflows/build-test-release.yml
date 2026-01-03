@@ -168,6 +168,7 @@ jobs:
           mkdir -p dmg-contents/Circle\ to\ Search\ PC.app/Contents/Resources/tessdata
 
           cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} dmg-contents/Circle\ to\ Search\ PC.app/Contents/MacOS/
+          chmod +x dmg-contents/Circle\ to\ Search\ PC.app/Contents/MacOS/${{ matrix.artifact_name }}
           cp tessdata/eng.traineddata dmg-contents/Circle\ to\ Search\ PC.app/Contents/Resources/tessdata/
 
           cat > dmg-contents/Circle\ to\ Search\ PC.app/Contents/Info.plist << EOF
@@ -183,8 +184,33 @@ jobs:
               <string>Circle to Search PC</string>
               <key>CFBundleVersion</key>
               <string>1.0</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>10.13</string>
           </dict>
           </plist>
+          EOF
+
+          cat > dmg-contents/INSTALL.txt << EOF
+          Circle to Search PC Installation Instructions
+          =============================================
+
+          macOS may show a warning that this app is "damaged" because it's not code-signed.
+
+          To install and run:
+
+          1. Copy "Circle to Search PC.app" to your Applications folder
+          2. Open Terminal and run:
+             xattr -cr "/Applications/Circle to Search PC.app"
+          3. Right-click the app and select "Open"
+          4. Click "Open" in the security dialog
+
+          After the first launch, you can open it normally from Applications.
+
+          Alternatively, you can disable Gatekeeper temporarily:
+             sudo spctl --master-disable
+          (Re-enable after installation with: sudo spctl --master-enable)
           EOF
 
           hdiutil create -volname "Circle to Search PC" -srcfolder dmg-contents -ov -format UDZO ${{ matrix.asset_name }}
