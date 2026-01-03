@@ -30,8 +30,8 @@ image = "0.25.9"
 rten = "0.24.0"
 rten-imageproc = "0.24.0"
 rten-tensor = "0.24.0"
-rusty-tesseract = "1.1.10"
-reqwest = { version = "0.13.1", features = ["multipart", "blocking"] }
+tesseract-static = { version = "0.2.0", features = ["parse"] }
+reqwest = { version = "0.13.1", features = ["multipart", "blocking", "json"] }
 urlencoding = "2.1"
 open = "5.3"
 base64 = "0.22"
@@ -40,9 +40,10 @@ sysinfo = "0.33"
 
 [profile.dev]
 opt-level = 0
-debug = false
+debug = true
 
 [profile.release]
 opt-level = 3
-strip = "symbols"
+strip = false
 lto = true
+debug = true
