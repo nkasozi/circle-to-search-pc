@@ -7,6 +7,7 @@ mod core;
 mod global_constants;
 mod ports;
 mod presentation;
+mod system_tray;
 mod user_settings;
 mod utils;
 
@@ -17,6 +18,12 @@ fn main() -> iced::Result {
 
     if !utils::ensure_single_instance() {
         log::error!("[MAIN] Failed to ensure single instance");
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use tray_icon::TrayIconEvent;
+        TrayIconEvent::set_event_handler(Some(|_event| {}));
     }
 
     daemon(

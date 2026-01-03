@@ -37,6 +37,7 @@ pub struct AppOrchestrator {
 
 #[derive(Clone)]
 pub enum OrchestratorMessage {
+    #[allow(dead_code)]
     OpenMainWindow,
     CaptureScreen,
     PerformCapture,
@@ -59,8 +60,12 @@ pub enum OrchestratorMessage {
     UpdateSearchUrl(String),
     UpdateHotkey(String),
     UpdateTheme(user_settings::ThemeMode),
+    UpdateSystemTrayMode(bool),
     SaveSettings,
     RestartApp,
+    TrayEvent(crate::system_tray::TrayEvent),
+    #[allow(dead_code)]
+    HideMainWindow,
 }
 
 impl std::fmt::Debug for OrchestratorMessage {
@@ -99,8 +104,11 @@ impl std::fmt::Debug for OrchestratorMessage {
             OrchestratorMessage::UpdateSearchUrl(_) => write!(f, "UpdateSearchUrl"),
             OrchestratorMessage::UpdateHotkey(_) => write!(f, "UpdateHotkey"),
             OrchestratorMessage::UpdateTheme(_) => write!(f, "UpdateTheme"),
+            OrchestratorMessage::UpdateSystemTrayMode(_) => write!(f, "UpdateSystemTrayMode"),
             OrchestratorMessage::SaveSettings => write!(f, "SaveSettings"),
             OrchestratorMessage::RestartApp => write!(f, "RestartApp"),
+            OrchestratorMessage::TrayEvent(event) => write!(f, "TrayEvent({:?})", event),
+            OrchestratorMessage::HideMainWindow => write!(f, "HideMainWindow"),
         }
     }
 }
@@ -210,11 +218,28 @@ impl AppOrchestrator {
                     temp.theme_mode = theme;
                 }
             }
+            OrchestratorMessage::UpdateSystemTrayMode(enabled) => {
+                self.settings.run_in_system_tray = enabled;
+                if let Err(e) = self.settings.save() {
+                    log::error!("[ORCHESTRATOR] Failed to save system tray setting: {}", e);
+                }
+                if enabled {
+                    return self.handle_hide_main_window();
+                } else {
+                    return self.handle_open_main_window();
+                }
+            }
             OrchestratorMessage::SaveSettings => {
                 return self.handle_save_settings();
             }
             OrchestratorMessage::RestartApp => {
                 return self.handle_restart_app();
+            }
+            OrchestratorMessage::TrayEvent(event) => {
+                return self.handle_tray_event(event);
+            }
+            OrchestratorMessage::HideMainWindow => {
+                return self.handle_hide_main_window();
             }
         }
 
@@ -238,22 +263,24 @@ impl AppOrchestrator {
 
     fn handle_open_main_window(&mut self) -> Task<OrchestratorMessage> {
         log::debug!("[ORCHESTRATOR] Opening main window");
-        if self.windows.is_empty() {
-            let (id, task) = window::open(window::Settings {
-                size: Size::new(700.0, 600.0),
-                position: window::Position::Centered,
-                resizable: false,
-                ..Default::default()
-            });
 
-            self.main_window_id = Some(id);
-            self.windows.insert(id, AppWindow::Main);
-            log::info!("[ORCHESTRATOR] Main window created with ID: {:?}", id);
-            return task.discard();
+        if self.main_window_id.is_some() && self.windows.contains_key(&self.main_window_id.unwrap())
+        {
+            log::warn!("[ORCHESTRATOR] Main window already exists and is open");
+            return Task::none();
         }
 
-        log::warn!("[ORCHESTRATOR] Main window already exists, skipping creation");
-        Task::none()
+        let (id, task) = window::open(window::Settings {
+            size: Size::new(700.0, 650.0),
+            position: window::Position::Centered,
+            resizable: false,
+            ..Default::default()
+        });
+
+        self.main_window_id = Some(id);
+        self.windows.insert(id, AppWindow::Main);
+        log::info!("[ORCHESTRATOR] Main window created with ID: {:?}", id);
+        task.discard()
     }
 
     fn handle_capture_screen(&mut self) -> Task<OrchestratorMessage> {
@@ -675,6 +702,13 @@ impl AppOrchestrator {
 
     fn handle_window_closed(&mut self, id: Id) -> Task<OrchestratorMessage> {
         log::info!("[ORCHESTRATOR] Window closed: {:?}", id);
+
+        if Some(id) == self.main_window_id {
+            log::info!("[ORCHESTRATOR] Main window closed");
+            self.windows.remove(&id);
+            return Task::none();
+        }
+
         let was_ocr_window = matches!(self.windows.get(&id), Some(AppWindow::InteractiveOcr(_)));
         self.windows.remove(&id);
         if Some(id) == self.settings_window_id {
@@ -751,6 +785,33 @@ impl AppOrchestrator {
         std::process::exit(0);
     }
 
+    fn handle_tray_event(
+        &mut self,
+        event: crate::system_tray::TrayEvent,
+    ) -> Task<OrchestratorMessage> {
+        use crate::system_tray::TrayEvent;
+
+        log::info!("[ORCHESTRATOR] Handling tray event: {:?}", event);
+
+        match event {
+            TrayEvent::ShowWindow => self.handle_open_main_window(),
+            TrayEvent::OpenSettings => self.handle_open_settings(),
+            TrayEvent::Quit => {
+                log::info!("[ORCHESTRATOR] Quit requested from tray");
+                iced::exit()
+            }
+        }
+    }
+
+    fn handle_hide_main_window(&mut self) -> Task<OrchestratorMessage> {
+        log::info!("[ORCHESTRATOR] Hiding main window to system tray");
+        if let Some(id) = self.main_window_id {
+            window::close(id)
+        } else {
+            Task::none()
+        }
+    }
+
     fn render_main_window(&self) -> Element<'_, OrchestratorMessage> {
         let theme = app_theme::get_theme(&self.settings.theme_mode);
 
@@ -766,6 +827,10 @@ impl AppOrchestrator {
             .style(|theme, status| app_theme::purple_button_style(theme, status))
             .on_press(OrchestratorMessage::OpenSettings);
 
+        let system_tray_checkbox = iced::widget::checkbox(self.settings.run_in_system_tray)
+            .label("Run in system tray (app stays in background)")
+            .on_toggle(OrchestratorMessage::UpdateSystemTrayMode);
+
         let content = column![
             title,
             text("").size(20),
@@ -778,6 +843,8 @@ impl AppOrchestrator {
             text("").size(10),
             text(format!("Status: {}", &self.status)),
             text("").size(20),
+            system_tray_checkbox,
+            text("").size(10),
             settings_btn,
         ]
         .spacing(10)

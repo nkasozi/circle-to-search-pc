@@ -206,7 +206,10 @@ impl InteractiveOcrView {
                 self.copy_confirmation = false;
             }
             InteractiveOcrMessage::SelectAll => {
-                log::info!("[INTERACTIVE_OCR] Selecting all {} characters", self.char_positions.len());
+                log::info!(
+                    "[INTERACTIVE_OCR] Selecting all {} characters",
+                    self.char_positions.len()
+                );
                 self.selected_chars = (0..self.char_positions.len()).collect();
             }
         }
@@ -308,13 +311,11 @@ impl InteractiveOcrView {
             "Click on another character to extend selection or click Copy to copy selected text"
         };
 
-        let status_banner = container(
-            text(status_banner_text)
-                .size(16)
-                .style(|_theme| iced::widget::text::Style {
-                    color: Some(Color::WHITE),
-                }),
-        )
+        let status_banner = container(text(status_banner_text).size(16).style(|_theme| {
+            iced::widget::text::Style {
+                color: Some(Color::WHITE),
+            }
+        }))
         .padding([12, 24])
         .width(Length::Fill)
         .align_x(Alignment::Center)

@@ -30,6 +30,8 @@ pub struct UserSettings {
     pub image_search_url_template: String,
     pub capture_hotkey: String,
     pub theme_mode: ThemeMode,
+    #[serde(default)]
+    pub run_in_system_tray: bool,
 }
 
 impl Default for UserSettings {
@@ -38,6 +40,7 @@ impl Default for UserSettings {
             image_search_url_template: global_constants::DEFAULT_IMAGE_SEARCH_URL.to_string(),
             capture_hotkey: global_constants::DEFAULT_CAPTURE_HOTKEY.to_string(),
             theme_mode: ThemeMode::default(),
+            run_in_system_tray: false,
         }
     }
 }

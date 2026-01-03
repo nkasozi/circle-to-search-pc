@@ -17,10 +17,7 @@ impl TesseractOcrService {
             .ok()
             .map(PathBuf::from)
             .or_else(|| {
-                let exe_dir = std::env::current_exe()
-                    .ok()?
-                    .parent()?
-                    .to_path_buf();
+                let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
                 let tessdata = exe_dir.join("tessdata");
                 if tessdata.exists() {
                     Some(exe_dir)

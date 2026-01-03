@@ -26,6 +26,7 @@ impl OcrService for DummyOcrService {
 
 pub struct CircleApp {
     orchestrator: AppOrchestrator,
+    _tray: Option<crate::system_tray::SystemTray>,
 }
 
 impl CircleApp {
@@ -43,6 +44,8 @@ impl CircleApp {
             settings.image_search_url_template.clone(),
         ));
 
+        let should_show_window = !settings.run_in_system_tray;
+
         let orchestrator = AppOrchestrator::build(
             Arc::new(XcapScreenCapturer::initialize()),
             Arc::new(SystemMousePositionProvider::initialize()),
@@ -51,25 +54,43 @@ impl CircleApp {
             settings,
         );
 
+        let tray = match crate::system_tray::SystemTray::build() {
+            Ok(tray) => {
+                log::info!("[APP] System tray initialized successfully");
+                Some(tray)
+            }
+            Err(e) => {
+                log::error!("[APP] Failed to initialize system tray: {}", e);
+                None
+            }
+        };
+
+        let mut tasks = vec![Task::future(async {
+            match TesseractOcrService::build() {
+                Ok(service) => {
+                    log::info!("[APP] Tesseract OCR service initialized successfully");
+                    OrchestratorMessage::OcrServiceReady(Arc::new(service) as Arc<dyn OcrService>)
+                }
+                Err(e) => {
+                    log::error!("[APP] Failed to initialize Tesseract OCR service: {}", e);
+                    OrchestratorMessage::OcrServiceFailed(e.to_string())
+                }
+            }
+        })];
+
+        if should_show_window {
+            log::info!("[APP] System tray mode disabled, showing main window");
+            tasks.push(Task::done(OrchestratorMessage::OpenMainWindow));
+        } else {
+            log::info!("[APP] Running in system tray mode, window hidden");
+        }
+
         (
-            Self { orchestrator },
-            Task::batch(vec![
-                Task::done(OrchestratorMessage::OpenMainWindow),
-                Task::future(async {
-                    match TesseractOcrService::build() {
-                        Ok(service) => {
-                            log::info!("[APP] Tesseract OCR service initialized successfully");
-                            OrchestratorMessage::OcrServiceReady(
-                                Arc::new(service) as Arc<dyn OcrService>
-                            )
-                        }
-                        Err(e) => {
-                            log::error!("[APP] Failed to initialize Tesseract OCR service: {}", e);
-                            OrchestratorMessage::OcrServiceFailed(e.to_string())
-                        }
-                    }
-                }),
-            ]),
+            Self {
+                orchestrator,
+                _tray: tray,
+            },
+            Task::batch(tasks),
         )
     }
 
@@ -100,6 +121,19 @@ impl CircleApp {
                     return Some(OrchestratorMessage::WindowClosed(id));
                 }
                 None
+            }),
+            iced::Subscription::run(|| {
+                iced::stream::channel(
+                    10,
+                    |mut output: futures::channel::mpsc::Sender<OrchestratorMessage>| async move {
+                        loop {
+                            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                            if let Some(event) = crate::system_tray::SystemTray::poll_events() {
+                                let _ = output.try_send(OrchestratorMessage::TrayEvent(event));
+                            }
+                        }
+                    },
+                )
             }),
         ])
     }
