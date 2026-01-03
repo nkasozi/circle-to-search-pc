@@ -11,6 +11,11 @@ mod system_tray;
 mod user_settings;
 mod utils;
 
+#[cfg(test)]
+mod app_theme_tests;
+#[cfg(test)]
+mod system_tray_tests;
+
 use iced::daemon;
 
 fn main() -> iced::Result {

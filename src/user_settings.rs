@@ -101,3 +101,113 @@ impl UserSettings {
         Ok(config_dir.join(global_constants::SETTINGS_FILE_NAME))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_theme_mode_default_is_dark() {
+        let default_theme = ThemeMode::default();
+        assert_eq!(default_theme, ThemeMode::Dark);
+    }
+
+    #[test]
+    fn test_theme_mode_display_dark() {
+        let theme = ThemeMode::Dark;
+        assert_eq!(format!("{}", theme), "Dark");
+    }
+
+    #[test]
+    fn test_theme_mode_display_light() {
+        let theme = ThemeMode::Light;
+        assert_eq!(format!("{}", theme), "Light");
+    }
+
+    #[test]
+    fn test_theme_mode_serialization() {
+        let theme = ThemeMode::Dark;
+        let serialized = serde_json::to_string(&theme).unwrap();
+        assert_eq!(serialized, "\"Dark\"");
+    }
+
+    #[test]
+    fn test_theme_mode_deserialization() {
+        let json = "\"Light\"";
+        let theme: ThemeMode = serde_json::from_str(json).unwrap();
+        assert_eq!(theme, ThemeMode::Light);
+    }
+
+    #[test]
+    fn test_user_settings_default_values() {
+        let settings = UserSettings::default();
+
+        assert_eq!(
+            settings.image_search_url_template,
+            global_constants::DEFAULT_IMAGE_SEARCH_URL
+        );
+        assert_eq!(
+            settings.capture_hotkey,
+            global_constants::DEFAULT_CAPTURE_HOTKEY
+        );
+        assert_eq!(settings.theme_mode, ThemeMode::Dark);
+        assert!(!settings.run_in_system_tray);
+    }
+
+    #[test]
+    fn test_user_settings_serialization() {
+        let settings = UserSettings {
+            image_search_url_template: "https://example.com/{IMAGE_URL}".to_string(),
+            capture_hotkey: "ctrl+shift+a".to_string(),
+            theme_mode: ThemeMode::Light,
+            run_in_system_tray: true,
+        };
+
+        let serialized = serde_json::to_string(&settings).unwrap();
+        let deserialized: UserSettings = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(deserialized.image_search_url_template, settings.image_search_url_template);
+        assert_eq!(deserialized.capture_hotkey, settings.capture_hotkey);
+        assert_eq!(deserialized.theme_mode, settings.theme_mode);
+        assert_eq!(deserialized.run_in_system_tray, settings.run_in_system_tray);
+    }
+
+    #[test]
+    fn test_user_settings_deserialization_with_missing_run_in_system_tray() {
+        let json = r#"{
+            "image_search_url_template": "https://example.com",
+            "capture_hotkey": "ctrl+a",
+            "theme_mode": "Dark"
+        }"#;
+
+        let settings: UserSettings = serde_json::from_str(json).unwrap();
+        assert!(!settings.run_in_system_tray);
+    }
+
+    #[test]
+    fn test_user_settings_save_and_load_roundtrip() {
+        let temp_dir = std::env::temp_dir().join("circle-to-search-test");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let original_settings = UserSettings {
+            image_search_url_template: "https://test.com/{IMAGE_URL}".to_string(),
+            capture_hotkey: "ctrl+shift+t".to_string(),
+            theme_mode: ThemeMode::Light,
+            run_in_system_tray: true,
+        };
+
+        let test_file = temp_dir.join("test_settings.json");
+        let contents = serde_json::to_string_pretty(&original_settings).unwrap();
+        std::fs::write(&test_file, contents).unwrap();
+
+        let loaded_contents = std::fs::read_to_string(&test_file).unwrap();
+        let loaded_settings: UserSettings = serde_json::from_str(&loaded_contents).unwrap();
+
+        assert_eq!(loaded_settings.image_search_url_template, original_settings.image_search_url_template);
+        assert_eq!(loaded_settings.capture_hotkey, original_settings.capture_hotkey);
+        assert_eq!(loaded_settings.theme_mode, original_settings.theme_mode);
+        assert_eq!(loaded_settings.run_in_system_tray, original_settings.run_in_system_tray);
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+}

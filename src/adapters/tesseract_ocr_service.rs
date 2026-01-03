@@ -2,8 +2,8 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use image::DynamicImage;
 use std::path::PathBuf;
-use tesseract_static::tesseract::Tesseract;
 use tesseract_static::parse::ParsedHocr;
+use tesseract_static::tesseract::Tesseract;
 
 use crate::core::interfaces::adapters::OcrService;
 use crate::core::models::{DetectedText, DetectedWord, OcrResult};
@@ -102,12 +102,10 @@ impl OcrService for TesseractOcrService {
 
         log::debug!("[TESSERACT_OCR] Getting hOCR output for word bounding boxes");
 
-        let hocr_xml = tesseract
-            .get_hocr_text(1)
-            .map_err(|e| {
-                log::error!("[TESSERACT_OCR] Failed to get hOCR text, error: {:?}", e);
-                anyhow::anyhow!("Failed to extract hOCR data from image: {:?}", e)
-            })?;
+        let hocr_xml = tesseract.get_hocr_text(1).map_err(|e| {
+            log::error!("[TESSERACT_OCR] Failed to get hOCR text, error: {:?}", e);
+            anyhow::anyhow!("Failed to extract hOCR data from image: {:?}", e)
+        })?;
 
         log::debug!("[TESSERACT_OCR] Parsing hOCR output");
 
