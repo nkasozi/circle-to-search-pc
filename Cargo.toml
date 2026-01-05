@@ -5,6 +5,9 @@ edition = "2021"
 description = "Circle to Search for Desktop"
 build = "build.rs"
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }
+
 [dependencies]
 anyhow = "1.0"
 arboard = { version = "3.6", features = ["wayland-data-control", "wl-clipboard-rs"] }
@@ -37,6 +40,23 @@ open = "5.3"
 base64 = "0.22"
 dirs = "5.0"
 sysinfo = "0.33"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+cocoa = "0.26"
+objc = "0.2"
+core-foundation = "0.10"
+libc = "0.2"
+
+[package.metadata.bundle]
+name = "Circle to Search"
+identifier = "com.circle-to-search.app"
+version = "0.1.0"
+category = "Utility"
+short_description = "Circle to Search for Desktop"
+long_description = "A desktop application that brings Google's Circle to Search feature to your Mac"
+copyright = "Copyright (c) 2026"
+icon = ["assets/icon.png"]
+resources = ["tessdata"]
 
 [profile.dev]
 opt-level = 0

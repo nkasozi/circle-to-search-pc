@@ -157,11 +157,48 @@ First, download the Tesseract language data:
 
 Then build:
 
+#### Option 1: Using cargo-bundle (Recommended for macOS)
+
+Install cargo-bundle:
+
+```bash
+cargo install cargo-bundle
+```
+
+Build and create the app bundle:
+
+```bash
+cargo bundle --release
+```
+
+The macOS application bundle will be created in `target/release/bundle/osx/Circle to Search.app`.
+
+To install, copy it to Applications:
+
+```bash
+cp -r "target/release/bundle/osx/Circle to Search.app" /Applications/
+```
+
+#### Option 2: Manual build
+
 ```bash
 cargo build --release
 ```
 
+For macOS, create the app bundle manually:
+
+```bash
+./create-macos-bundle.sh
+```
+
 The application will automatically detect tessdata in the executable directory or use system Tesseract data as fallback.
+
+**Note on Permissions**: On first launch, macOS will prompt for Screen Recording and Accessibility permissions. These are required for:
+
+- **Screen Recording**: To capture your screen for search functionality
+- **Accessibility**: To detect the keyboard shortcut (Alt+Shift+S)
+
+The app will guide you through granting these permissions via System Settings.
 
 ### Running
 

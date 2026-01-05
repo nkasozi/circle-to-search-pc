@@ -20,5 +20,9 @@
     <true/>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>Circle to Search needs permission to capture your screen to enable search functionality. This allows you to select and search for text and images on your screen.</string>
+    <key>NSAccessibilityUsageDescription</key>
+    <string>Circle to Search needs accessibility permission to detect keyboard shortcuts (Alt+Shift+S) that trigger the screen capture feature.</string>
 </dict>
 </plist>
