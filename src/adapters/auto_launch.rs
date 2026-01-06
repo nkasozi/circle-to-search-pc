@@ -71,6 +71,14 @@ fn get_auto_launch() -> Option<AutoLaunch> {
 
     #[cfg(target_os = "macos")]
     {
+        if !exe_path.contains(".app/Contents/MacOS/") {
+            log::warn!(
+                "{} Not running from app bundle, auto-launch not available",
+                LOG_TAG_AUTO_LAUNCH
+            );
+            return None;
+        }
+
         let app_path = find_macos_app_bundle_path(exe_path);
         log::debug!("{} Using app path: {}", LOG_TAG_AUTO_LAUNCH, app_path);
 

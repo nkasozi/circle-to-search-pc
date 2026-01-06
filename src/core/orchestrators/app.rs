@@ -3,7 +3,9 @@ use std::sync::Arc;
 use iced::window::Id;
 use iced::{Element, Task};
 
-use crate::adapters::{GoogleLensSearchProvider, ImgbbImageHostingService, TesseractOcrService};
+use crate::adapters::{
+    macos_app_behavior, GoogleLensSearchProvider, ImgbbImageHostingService, TesseractOcrService,
+};
 use crate::core::interfaces::adapters::OcrService;
 use crate::core::models::{OcrResult, UserSettings};
 use crate::core::orchestrators::app_orchestrator::{AppOrchestrator, OrchestratorMessage};
@@ -29,23 +31,49 @@ pub struct CircleApp {
     _tray: Option<SystemTray>,
 }
 
+fn check_all_permissions_granted() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        use crate::adapters::macos_permissions::macos::{
+            check_accessibility_permission, check_screen_recording_permission,
+        };
+
+        let screen_recording_granted = check_screen_recording_permission();
+        let accessibility_granted = check_accessibility_permission();
+
+        log::info!(
+            "[APP] Permission check: screen_recording={}, accessibility={}",
+            screen_recording_granted,
+            accessibility_granted
+        );
+
+        screen_recording_granted && accessibility_granted
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
+    }
+}
+
 impl CircleApp {
     pub fn build() -> (Self, Task<OrchestratorMessage>) {
         log::info!("[APP] Initializing application");
+
+        macos_app_behavior::macos::hide_dock_icon();
 
         let settings = UserSettings::load().unwrap_or_else(|e| {
             log::warn!("[APP] Failed to load settings: {}, using defaults", e);
             UserSettings::default()
         });
 
+        let onboarding_complete = settings.onboarding_complete;
+
         let image_hosting_service = Arc::new(ImgbbImageHostingService::new());
         let reverse_image_search_provider = Arc::new(GoogleLensSearchProvider::new(
             image_hosting_service,
             settings.image_search_url_template.clone(),
         ));
-
-        let needs_onboarding = !settings.onboarding_complete;
-        let should_show_main_window = !settings.run_in_system_tray && !needs_onboarding;
 
         let orchestrator = AppOrchestrator::build(
             Arc::new(XcapScreenCapturer::initialize()),
@@ -66,27 +94,35 @@ impl CircleApp {
             }
         };
 
-        let mut tasks = vec![Task::future(async {
-            match TesseractOcrService::build() {
-                Ok(service) => {
-                    log::info!("[APP] Tesseract OCR service initialized successfully");
-                    OrchestratorMessage::OcrServiceReady(Arc::new(service) as Arc<dyn OcrService>)
+        let mut tasks = vec![
+            Task::done(OrchestratorMessage::CreateHiddenWindow),
+            Task::future(async {
+                match TesseractOcrService::build() {
+                    Ok(service) => {
+                        log::info!("[APP] Tesseract OCR service initialized successfully");
+                        OrchestratorMessage::OcrServiceReady(
+                            Arc::new(service) as Arc<dyn OcrService>
+                        )
+                    }
+                    Err(e) => {
+                        log::error!("[APP] Failed to initialize Tesseract OCR service: {}", e);
+                        OrchestratorMessage::OcrServiceFailed(e.to_string())
+                    }
                 }
-                Err(e) => {
-                    log::error!("[APP] Failed to initialize Tesseract OCR service: {}", e);
-                    OrchestratorMessage::OcrServiceFailed(e.to_string())
-                }
-            }
-        })];
+            }),
+        ];
+
+        let all_permissions_granted = check_all_permissions_granted();
+        let needs_onboarding = !onboarding_complete || !all_permissions_granted;
 
         if needs_onboarding {
-            log::info!("[APP] Onboarding not complete, showing onboarding window");
+            log::info!(
+                "[APP] Permissions missing or onboarding incomplete, showing onboarding window"
+            );
             tasks.push(Task::done(OrchestratorMessage::OpenOnboarding));
-        } else if should_show_main_window {
-            log::info!("[APP] System tray mode disabled, showing main window");
-            tasks.push(Task::done(OrchestratorMessage::OpenMainWindow));
         } else {
-            log::info!("[APP] Running in system tray mode, window hidden");
+            log::info!("[APP] Permissions OK, showing main window");
+            tasks.push(Task::done(OrchestratorMessage::OpenMainWindow));
         }
 
         (

@@ -20,6 +20,7 @@ pub enum AppWindow {
     InteractiveOcr(crate::presentation::InteractiveOcrView),
     Settings,
     Onboarding(OnboardingView),
+    Hidden,
 }
 
 pub struct AppOrchestrator {
@@ -31,6 +32,7 @@ pub struct AppOrchestrator {
     windows: HashMap<Id, AppWindow>,
     main_window_id: Option<Id>,
     onboarding_window_id: Option<Id>,
+    hidden_window_id: Option<Id>,
     status: String,
     settings: UserSettings,
     settings_window_id: Option<Id>,
@@ -41,6 +43,7 @@ pub struct AppOrchestrator {
 pub enum OrchestratorMessage {
     #[allow(dead_code)]
     OpenMainWindow,
+    CreateHiddenWindow,
     CaptureScreen,
     PerformCapture,
     OpenCaptureOverlay(i32, i32, CaptureBuffer),
@@ -76,6 +79,7 @@ impl std::fmt::Debug for OrchestratorMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             OrchestratorMessage::OpenMainWindow => write!(f, "OpenMainWindow"),
+            OrchestratorMessage::CreateHiddenWindow => write!(f, "CreateHiddenWindow"),
             OrchestratorMessage::CaptureScreen => write!(f, "CaptureScreen"),
             OrchestratorMessage::PerformCapture => write!(f, "PerformCapture"),
             OrchestratorMessage::OpenCaptureOverlay(x, y, _) => {
@@ -135,11 +139,34 @@ impl AppOrchestrator {
             windows: HashMap::new(),
             main_window_id: None,
             onboarding_window_id: None,
+            hidden_window_id: None,
             status: "Initializing OCR service...".to_string(),
             settings,
             settings_window_id: None,
             temp_settings: None,
         }
+    }
+
+    pub fn create_hidden_window(&mut self) -> Task<OrchestratorMessage> {
+        if self.hidden_window_id.is_some() {
+            return Task::none();
+        }
+
+        log::info!("[ORCHESTRATOR] Creating hidden background window to keep app alive");
+
+        let (id, task) = window::open(window::Settings {
+            size: Size::new(1.0, 1.0),
+            position: window::Position::Specific(Point::new(-10000.0, -10000.0)),
+            visible: false,
+            resizable: false,
+            decorations: false,
+            ..Default::default()
+        });
+
+        self.hidden_window_id = Some(id);
+        self.windows.insert(id, AppWindow::Hidden);
+
+        task.discard()
     }
 
     #[allow(dead_code)]
@@ -153,6 +180,9 @@ impl AppOrchestrator {
         match message {
             OrchestratorMessage::OpenMainWindow => {
                 return self.handle_open_main_window();
+            }
+            OrchestratorMessage::CreateHiddenWindow => {
+                return self.create_hidden_window();
             }
             OrchestratorMessage::CaptureScreen => {
                 return self.handle_capture_screen();
@@ -273,6 +303,7 @@ impl AppOrchestrator {
             Some(AppWindow::Onboarding(onboarding_view)) => onboarding_view
                 .view()
                 .map(move |msg| OrchestratorMessage::OnboardingMsg(window_id, msg)),
+            Some(AppWindow::Hidden) => container(Space::new()).into(),
             None => text("Loading...").into(),
         }
     }
@@ -719,9 +750,24 @@ impl AppOrchestrator {
     fn handle_window_closed(&mut self, id: Id) -> Task<OrchestratorMessage> {
         log::info!("[ORCHESTRATOR] Window closed: {:?}", id);
 
-        if Some(id) == self.main_window_id {
-            log::info!("[ORCHESTRATOR] Main window closed");
+        if Some(id) == self.hidden_window_id {
+            log::warn!("[ORCHESTRATOR] Hidden window closed unexpectedly, recreating");
+            self.hidden_window_id = None;
             self.windows.remove(&id);
+            return self.create_hidden_window();
+        }
+
+        if Some(id) == self.main_window_id {
+            log::info!("[ORCHESTRATOR] Main window closed, app will continue in system tray");
+            self.windows.remove(&id);
+            self.main_window_id = None;
+            return Task::none();
+        }
+
+        if Some(id) == self.onboarding_window_id {
+            log::info!("[ORCHESTRATOR] Onboarding window closed");
+            self.windows.remove(&id);
+            self.onboarding_window_id = None;
             return Task::none();
         }
 

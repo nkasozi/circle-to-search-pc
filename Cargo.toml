@@ -67,5 +67,10 @@ debug = true
 [profile.release]
 opt-level = 3
 strip = false
-lto = true
+lto = false
 debug = true
+
+[profile.release-optimized]
+inherits = "release"
+lto = true
+strip = true

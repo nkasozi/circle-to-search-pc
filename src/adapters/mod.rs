@@ -1,6 +1,7 @@
 pub mod auto_launch;
 mod google_lens_search_provider;
 mod imgbb_image_hosting_service;
+pub mod macos_app_behavior;
 pub mod macos_permissions;
 mod tesseract_ocr_service;
 
