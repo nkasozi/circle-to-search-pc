@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::fs;
 use std::path::PathBuf;
+use uuid::Uuid;
 
 use crate::global_constants;
 
@@ -36,6 +38,8 @@ pub struct UserSettings {
     pub onboarding_complete: bool,
     #[serde(default)]
     pub launch_at_login: bool,
+    #[serde(default)]
+    pub install_id: Option<String>,
 }
 
 impl Default for UserSettings {
@@ -47,23 +51,36 @@ impl Default for UserSettings {
             run_in_system_tray: true,
             onboarding_complete: false,
             launch_at_login: false,
+            install_id: None,
         }
     }
 }
 
 impl UserSettings {
     pub fn load() -> anyhow::Result<Self> {
+        let current_install_id = Self::get_or_create_install_id();
         let settings_path = Self::get_settings_file_path()?;
 
         if !settings_path.exists() {
             log::info!("[SETTINGS] No settings file found, using defaults");
-            let default_settings = Self::default();
+            let mut default_settings = Self::default();
+            default_settings.install_id = current_install_id.clone();
             default_settings.save()?;
             return Ok(default_settings);
         }
 
         let contents = std::fs::read_to_string(&settings_path)?;
-        let settings: UserSettings = serde_json::from_str(&contents)?;
+        let mut settings: UserSettings = serde_json::from_str(&contents)?;
+
+        if Self::is_new_installation(&settings.install_id, &current_install_id) {
+            log::info!("[SETTINGS] New installation detected, resetting settings");
+            let mut default_settings = Self::default();
+            default_settings.install_id = current_install_id;
+            default_settings.save()?;
+            return Ok(default_settings);
+        }
+
+        settings.install_id = current_install_id;
 
         log::info!("[SETTINGS] Loaded settings from {:?}", settings_path);
         log::debug!(
@@ -105,6 +122,89 @@ impl UserSettings {
         };
 
         Ok(config_dir.join(global_constants::SETTINGS_FILE_NAME))
+    }
+
+    fn get_or_create_install_id() -> Option<String> {
+        let install_id_path = match Self::get_install_id_path() {
+            Some(path) => path,
+            None => {
+                log::debug!("[SETTINGS] Could not determine install ID path (not in app bundle)");
+                return None;
+            }
+        };
+
+        if install_id_path.exists() {
+            match fs::read_to_string(&install_id_path) {
+                Ok(id) => {
+                    let id = id.trim().to_string();
+                    log::debug!("[SETTINGS] Found existing install ID: {}", id);
+                    return Some(id);
+                }
+                Err(error) => {
+                    log::warn!("[SETTINGS] Failed to read install ID: {}", error);
+                }
+            }
+        }
+
+        let new_id = Uuid::new_v4().to_string();
+        log::info!("[SETTINGS] Generated new install ID: {}", new_id);
+
+        if let Some(parent) = install_id_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+
+        match fs::write(&install_id_path, &new_id) {
+            Ok(()) => {
+                log::info!("[SETTINGS] Saved install ID to {:?}", install_id_path);
+            }
+            Err(error) => {
+                log::warn!("[SETTINGS] Failed to save install ID: {}", error);
+            }
+        }
+
+        Some(new_id)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn get_install_id_path() -> Option<PathBuf> {
+        let exe_path = std::env::current_exe().ok()?;
+        let exe_str = exe_path.to_str()?;
+
+        if exe_str.contains(".app/Contents/MacOS/") {
+            let parts: Vec<&str> = exe_str.split(".app/Contents/MacOS/").collect();
+            if !parts.is_empty() {
+                let app_bundle = format!("{}.app", parts[0]);
+                return Some(PathBuf::from(app_bundle).join("Contents/Resources/.install_id"));
+            }
+        }
+
+        None
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn get_install_id_path() -> Option<PathBuf> {
+        let exe_path = std::env::current_exe().ok()?;
+        let exe_dir = exe_path.parent()?;
+        Some(exe_dir.join(".install_id"))
+    }
+
+    fn is_new_installation(saved_id: &Option<String>, current_id: &Option<String>) -> bool {
+        match (saved_id, current_id) {
+            (Some(saved), Some(current)) => {
+                let is_different = saved != current;
+                if is_different {
+                    log::info!(
+                        "[SETTINGS] Install ID mismatch: saved={}, current={}",
+                        saved,
+                        current
+                    );
+                }
+                is_different
+            }
+            (Some(_), None) => false,
+            (None, Some(_)) => false,
+            (None, None) => false,
+        }
     }
 }
 
@@ -159,6 +259,7 @@ mod tests {
             run_in_system_tray: true,
             onboarding_complete: true,
             launch_at_login: true,
+            install_id: Some("test-id".to_string()),
         };
 
         let serialized = serde_json::to_string(&settings).unwrap();
@@ -202,6 +303,7 @@ mod tests {
             run_in_system_tray: true,
             onboarding_complete: true,
             launch_at_login: true,
+            install_id: Some("test-roundtrip-id".to_string()),
         };
 
         let test_file = temp_dir.join("test_settings.json");
