@@ -96,8 +96,9 @@ fn find_macos_app_bundle_path(exe_path: &str) -> String {
 }
 
 #[cfg(test)]
+#[cfg(target_os = "macos")]
 mod tests {
-    use super::*;
+    use super::find_macos_app_bundle_path;
 
     #[test]
     fn test_find_macos_app_bundle_path_with_app_bundle() {
