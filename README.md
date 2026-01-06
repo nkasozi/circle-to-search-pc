@@ -48,71 +48,6 @@ graph TB
     style User fill:#08427b,stroke:#052e56,color:#ffffff
 ```
 
-### C4 Model - Level 1: Container Diagram with Hexagonal Architecture
-
-```mermaid
-graph TB
-    subgraph External["External Systems"]
-        GoogleLens[Google Lens API]
-        Imgbb[Imgbb Image Hosting]
-        OS[Operating System APIs]
-        TesseractEngine[Tesseract OCR Engine]
-    end
-
-    subgraph Application["Circle to Search PC"]
-        subgraph Core["Core Domain"]
-            Models[Models<br/>CaptureBuffer<br/>ScreenRegion<br/>OcrResult]
-            Orchestrator[AppOrchestrator<br/>Business Logic & State]
-
-            subgraph Interfaces["Interfaces"]
-                PortInterfaces[Port Interfaces<br/>ScreenCapturer<br/>MousePositionProvider<br/>KeyboardListener]
-                AdapterInterfaces[Adapter Interfaces<br/>OcrService<br/>ReverseImageSearchProvider<br/>ImageHostingService]
-            end
-        end
-
-        subgraph Ports["Infrastructure Ports"]
-            XcapCapturer[XcapScreenCapturer]
-            MouseProvider[SystemMousePositionProvider]
-            KeyboardPort[KeyboardListener]
-        end
-
-        subgraph Adapters["External Service Adapters"]
-            TesseractAdapter[TesseractOcrService]
-            GoogleLensAdapter[GoogleLensSearchProvider]
-            ImgbbAdapter[ImgbbImageHostingService]
-        end
-
-        UI[Iced GUI Framework<br/>Presentation Layer]
-    end
-
-    UI -->|Commands| Orchestrator
-    Orchestrator -->|Uses| Models
-    Orchestrator -->|Depends on| PortInterfaces
-    Orchestrator -->|Depends on| AdapterInterfaces
-
-    XcapCapturer -.->|Implements| PortInterfaces
-    MouseProvider -.->|Implements| PortInterfaces
-    KeyboardPort -.->|Implements| PortInterfaces
-
-    TesseractAdapter -.->|Implements| AdapterInterfaces
-    GoogleLensAdapter -.->|Implements| AdapterInterfaces
-    ImgbbAdapter -.->|Implements| AdapterInterfaces
-
-    XcapCapturer -->|Uses| OS
-    MouseProvider -->|Uses| OS
-    KeyboardPort -->|Uses| OS
-    TesseractAdapter -->|Uses| TesseractEngine
-    GoogleLensAdapter -->|Calls| GoogleLens
-    GoogleLensAdapter -->|Depends on| ImgbbAdapter
-    ImgbbAdapter -->|Uploads to| Imgbb
-
-    style Core fill:#1168bd,stroke:#0b4884,color:#ffffff
-    style Interfaces fill:#2196F3,stroke:#1976D2,color:#ffffff
-    style Ports fill:#4CAF50,stroke:#388E3C,color:#ffffff
-    style Adapters fill:#FF9800,stroke:#F57C00,color:#ffffff
-    style External fill:#9E9E9E,stroke:#616161,color:#ffffff
-```
-
 ### Key Architectural Patterns
 
 **Hexagonal Architecture Benefits**:
@@ -121,13 +56,22 @@ graph TB
 - **Flexibility**: Easy to swap implementations (e.g., replace Google Lens with Bing Visual Search)
 - **Maintainability**: Clear boundaries between business logic and infrastructure concerns
 
-**Port Interfaces** (Infrastructure):
+**Layer Responsibilities**:
+
+| Layer            | Direction  | Purpose                                                         |
+| ---------------- | ---------- | --------------------------------------------------------------- |
+| **Ports**        | Data IN →  | Things that call the application (keyboard, mouse, system tray) |
+| **Adapters**     | Data OUT → | Things the application calls (OCR, image hosting, search APIs)  |
+| **Core**         | —          | Pure business logic with no external dependencies               |
+| **Presentation** | —          | UI rendering and user interaction                               |
+
+**Port Interfaces** (Data flowing IN):
 
 - `ScreenCapturer`: Abstract screen capture operations
 - `MousePositionProvider`: Abstract cursor position tracking
 - `KeyboardListener`: Abstract hotkey monitoring
 
-**Adapter Interfaces** (External Services):
+**Adapter Interfaces** (Data flowing OUT):
 
 - `OcrService`: Abstract text extraction from images
 - `ReverseImageSearchProvider`: Abstract reverse image search operations
@@ -251,14 +195,15 @@ cargo test -- --nocapture
 
 ### Test Coverage
 
-The application includes 40+ unit tests covering:
+The application includes 60+ unit tests covering:
 
-- **Models**: CaptureBuffer cropping, bounds validation, OCR results
-- **Adapters**: Google Lens search, Imgbb hosting, Tesseract OCR
-- **Ports**: Screen capture, mouse tracking, coordinate conversion
-- **Orchestrator**: State management, message handling, service initialization
+- **Core Models**: CaptureBuffer cropping, bounds validation, OCR results, user settings
+- **Adapters**: Google Lens search URL construction, Imgbb hosting, Tesseract OCR initialization
+- **Ports**: Screen capture conversion, mouse tracking, system tray events
+- **Orchestrator**: State management, message handling, settings updates
+- **Presentation**: Theme generation, button styling
 
-All external dependencies are mocked for isolated testing.
+All external dependencies are mocked for isolated testing. Tests are co-located with source code using `#[cfg(test)]` modules.
 
 ## Usage
 
@@ -283,45 +228,90 @@ All external dependencies are mocked for isolated testing.
 
 ## Project Structure
 
+The codebase follows **Hexagonal Architecture** (also known as Ports and Adapters or Onion Architecture), organizing code into clear layers with well-defined responsibilities.
+
 ```
 src/
-├── main.rs                          # Application entry point
-├── app.rs                           # Main application state & initialization
-├── app_theme.rs                     # UI theming
-├── global_constants.rs              # Configuration constants
-├── user_settings.rs                 # Settings management
-├── utils.rs                         # Utility functions
-├── core/                            # Core domain layer
-│   ├── models/                      # Domain models
-│   │   ├── capture_buffer.rs        # Screen capture data
-│   │   ├── screen_region.rs         # Screen region coordinates
-│   │   └── ocr.rs                   # OCR result structures
-│   ├── interfaces/                  # Interface definitions
-│   │   ├── adapters/                # External service interfaces
-│   │   │   ├── search_provider.rs   # Reverse image search abstraction
-│   │   │   ├── image_hosting_service.rs  # Image hosting abstraction
-│   │   │   └── mod.rs
-│   │   └── ports/                   # Infrastructure interfaces
-│   │       ├── screen_capturer.rs   # Screen capture abstraction
-│   │       ├── mouse_provider.rs    # Mouse tracking abstraction
-│   │       └── mod.rs
-│   └── orchestrators/               # Business logic orchestration
-│       └── app_orchestrator.rs      # Main orchestrator
-├── adapters/                        # External service implementations
-│   ├── tesseract_ocr_service.rs     # Tesseract OCR adapter
-│   ├── google_lens_search_provider.rs  # Google Lens adapter
-│   ├── imgbb_image_hosting_service.rs  # Imgbb adapter
-│   └── mod.rs
-├── ports/                           # Infrastructure implementations
-│   ├── xcap_screen_capturer.rs      # Screen capture port
-│   ├── mouse_position_provider.rs   # Mouse tracking port
-│   ├── keyboard_listener.rs         # Hotkey monitoring port
-│   └── mod.rs
-└── presentation/                    # UI layer
-    ├── capture_view.rs              # Screen capture UI
-    ├── interactive_ocr_view.rs      # OCR interaction UI
-    ├── ocr_results_view.rs          # Results display UI
-    └── mod.rs
+├── main.rs                              # Application entry point
+├── global_constants.rs                  # App-wide configuration constants
+│
+├── core/                                # CORE DOMAIN LAYER
+│   │                                    # Pure business logic, no external dependencies
+│   │
+│   ├── models/                          # Domain entities and value objects
+│   │   ├── capture_buffer.rs            # Screen capture data with cropping logic
+│   │   ├── screen_region.rs             # Screen coordinates and regions
+│   │   ├── ocr.rs                       # OCR result structures (words, positions)
+│   │   └── user_settings.rs             # User preferences and configuration
+│   │
+│   ├── interfaces/                      # Abstract contracts (traits)
+│   │   ├── adapters/                    # Interfaces for OUTGOING dependencies
+│   │   │   ├── search_provider.rs       # Reverse image search abstraction
+│   │   │   ├── image_hosting_service.rs # Image upload abstraction
+│   │   │   └── ocr_service.rs           # Text extraction abstraction
+│   │   └── ports/                       # Interfaces for INCOMING data
+│   │       ├── screen_capturer.rs       # Screen capture abstraction
+│   │       └── mouse_provider.rs        # Mouse position abstraction
+│   │
+│   └── orchestrators/                   # Application use cases
+│       ├── app.rs                       # Main app initialization and lifecycle
+│       └── app_orchestrator.rs          # Core workflow orchestration
+│
+├── ports/                               # PORTS LAYER (Data IN)
+│   │                                    # Implementations that DRIVE the application
+│   │
+│   ├── xcap_screen_capturer.rs          # Screen capture using xcap library
+│   ├── mouse_position_provider.rs       # System mouse position tracking
+│   ├── keyboard_listener.rs             # Global hotkey monitoring
+│   └── system_tray.rs                   # System tray icon and menu events
+│
+├── adapters/                            # ADAPTERS LAYER (Data OUT)
+│   │                                    # Implementations the application DRIVES
+│   │
+│   ├── tesseract_ocr_service.rs         # Tesseract OCR integration
+│   ├── google_lens_search_provider.rs   # Google Lens reverse image search
+│   ├── imgbb_image_hosting_service.rs   # Imgbb image upload service
+│   ├── auto_launch.rs                   # OS auto-start configuration
+│   └── macos_permissions.rs             # macOS permission requests
+│
+├── presentation/                        # PRESENTATION LAYER
+│   │                                    # User interface components
+│   │
+│   ├── app_theme.rs                     # Visual theming (colors, styles)
+│   ├── capture_view.rs                  # Screen region selection overlay
+│   ├── interactive_ocr_view.rs          # OCR results with text selection
+│   ├── ocr_results_view.rs              # Simple results display
+│   └── onboarding_view.rs               # First-run permission setup
+│
+├── infrastructure/                      # INFRASTRUCTURE LAYER
+│   │                                    # Cross-cutting utilities
+│   │
+│   └── utils.rs                         # Single instance lock, helpers
+│
+└── assets/                              # STATIC ASSETS
+    ├── icon.png                         # Application icon
+    ├── icon.icns                        # macOS icon format
+    └── tray_icon.png                    # System tray icon
+```
+
+### Architecture Quick Reference
+
+| Layer              | Purpose                | Dependencies     | Example                             |
+| ------------------ | ---------------------- | ---------------- | ----------------------------------- |
+| **Core**           | Business logic & rules | None (pure Rust) | Cropping images, validating regions |
+| **Ports**          | External events IN     | Core interfaces  | Keyboard shortcuts, mouse events    |
+| **Adapters**       | External services OUT  | Core interfaces  | OCR services, image hosting         |
+| **Presentation**   | User interface         | Core models      | Capture overlay, results view       |
+| **Infrastructure** | Utilities              | None             | Process management, file I/O        |
+
+### Data Flow
+
+```
+[User Input] → Ports → Core Orchestrator → Adapters → [External Services]
+     ↓                       ↓
+[System Events]        Presentation
+                            ↓
+                      [User Output]
 ```
 
 ## CI/CD Pipeline
@@ -366,10 +356,13 @@ The CI pipeline will automatically build, test, and publish the release.
 
 Contributions are welcome! The hexagonal architecture makes it easy to:
 
-- Add new search providers (implement `ReverseImageSearchProvider`)
-- Add new image hosts (implement `ImageHostingService`)
-- Add new OCR engines (implement `OcrService`)
-- Improve UI components in the presentation layer
+- **Add new search providers**: Implement `ReverseImageSearchProvider` trait in `adapters/`
+- **Add new image hosts**: Implement `ImageHostingService` trait in `adapters/`
+- **Add new OCR engines**: Implement `OcrService` trait in `adapters/`
+- **Add new input methods**: Implement port interfaces in `ports/`
+- **Improve UI**: Modify views in `presentation/`
+
+All business logic changes should go in `core/` with corresponding unit tests.
 
 ## Acknowledgments
 

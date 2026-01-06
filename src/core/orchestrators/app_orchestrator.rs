@@ -1,24 +1,25 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use iced::widget::{button, column, container, text};
+use iced::widget::{button, column, container, row, text, Space};
 use iced::window::{self, Id};
 use iced::{Alignment, Background, Color, Element, Length, Point, Rectangle, Size, Task};
 use mouse_position::mouse_position::Mouse;
 
-use crate::app_theme;
+use crate::adapters::{auto_launch, macos_permissions};
 use crate::core::interfaces::adapters::{OcrService, ReverseImageSearchProvider};
 use crate::core::interfaces::ports::{MousePositionProvider, ScreenCapturer};
-use crate::core::models::{CaptureBuffer, OcrResult, ScreenRegion};
-use crate::ports::GlobalKeyboardEvent;
-use crate::presentation::{CaptureView, CaptureViewMessage};
-use crate::user_settings;
+use crate::core::models::{CaptureBuffer, OcrResult, ScreenRegion, ThemeMode, UserSettings};
+use crate::ports::{GlobalKeyboardEvent, TrayEvent};
+use crate::presentation::app_theme;
+use crate::presentation::{CaptureView, CaptureViewMessage, OnboardingMessage, OnboardingView};
 
 pub enum AppWindow {
     Main,
     CaptureOverlay(CaptureView),
     InteractiveOcr(crate::presentation::InteractiveOcrView),
     Settings,
+    Onboarding(OnboardingView),
 }
 
 pub struct AppOrchestrator {
@@ -29,10 +30,11 @@ pub struct AppOrchestrator {
     reverse_image_search_provider: Arc<dyn ReverseImageSearchProvider>,
     windows: HashMap<Id, AppWindow>,
     main_window_id: Option<Id>,
+    onboarding_window_id: Option<Id>,
     status: String,
-    settings: user_settings::UserSettings,
+    settings: UserSettings,
     settings_window_id: Option<Id>,
-    temp_settings: Option<user_settings::UserSettings>,
+    temp_settings: Option<UserSettings>,
 }
 
 #[derive(Clone)]
@@ -59,13 +61,15 @@ pub enum OrchestratorMessage {
     OpenSettings,
     UpdateSearchUrl(String),
     UpdateHotkey(String),
-    UpdateTheme(user_settings::ThemeMode),
+    UpdateTheme(ThemeMode),
     UpdateSystemTrayMode(bool),
     SaveSettings,
     RestartApp,
-    TrayEvent(crate::system_tray::TrayEvent),
+    TrayEvent(TrayEvent),
     #[allow(dead_code)]
     HideMainWindow,
+    OpenOnboarding,
+    OnboardingMsg(Id, OnboardingMessage),
 }
 
 impl std::fmt::Debug for OrchestratorMessage {
@@ -109,6 +113,8 @@ impl std::fmt::Debug for OrchestratorMessage {
             OrchestratorMessage::RestartApp => write!(f, "RestartApp"),
             OrchestratorMessage::TrayEvent(event) => write!(f, "TrayEvent({:?})", event),
             OrchestratorMessage::HideMainWindow => write!(f, "HideMainWindow"),
+            OrchestratorMessage::OpenOnboarding => write!(f, "OpenOnboarding"),
+            OrchestratorMessage::OnboardingMsg(id, _) => write!(f, "OnboardingMsg({:?})", id),
         }
     }
 }
@@ -119,7 +125,7 @@ impl AppOrchestrator {
         mouse_provider: Arc<dyn MousePositionProvider>,
         ocr_service: Arc<dyn OcrService>,
         reverse_image_search_provider: Arc<dyn ReverseImageSearchProvider>,
-        settings: user_settings::UserSettings,
+        settings: UserSettings,
     ) -> Self {
         Self {
             screen_capturer,
@@ -128,6 +134,7 @@ impl AppOrchestrator {
             reverse_image_search_provider,
             windows: HashMap::new(),
             main_window_id: None,
+            onboarding_window_id: None,
             status: "Initializing OCR service...".to_string(),
             settings,
             settings_window_id: None,
@@ -241,6 +248,12 @@ impl AppOrchestrator {
             OrchestratorMessage::HideMainWindow => {
                 return self.handle_hide_main_window();
             }
+            OrchestratorMessage::OpenOnboarding => {
+                return self.handle_open_onboarding();
+            }
+            OrchestratorMessage::OnboardingMsg(window_id, msg) => {
+                return self.handle_onboarding_message(window_id, msg);
+            }
         }
 
         log::debug!("[ORCHESTRATOR] No task to return, ending update");
@@ -257,6 +270,9 @@ impl AppOrchestrator {
                 .render_ui()
                 .map(move |msg| OrchestratorMessage::InteractiveOcrMessage(window_id, msg)),
             Some(AppWindow::Settings) => self.render_settings_window(),
+            Some(AppWindow::Onboarding(onboarding_view)) => onboarding_view
+                .view()
+                .map(move |msg| OrchestratorMessage::OnboardingMsg(window_id, msg)),
             None => text("Loading...").into(),
         }
     }
@@ -785,12 +801,7 @@ impl AppOrchestrator {
         std::process::exit(0);
     }
 
-    fn handle_tray_event(
-        &mut self,
-        event: crate::system_tray::TrayEvent,
-    ) -> Task<OrchestratorMessage> {
-        use crate::system_tray::TrayEvent;
-
+    fn handle_tray_event(&mut self, event: TrayEvent) -> Task<OrchestratorMessage> {
         log::info!("[ORCHESTRATOR] Handling tray event: {:?}", event);
 
         match event {
@@ -815,40 +826,86 @@ impl AppOrchestrator {
     fn render_main_window(&self) -> Element<'_, OrchestratorMessage> {
         let theme = app_theme::get_theme(&self.settings.theme_mode);
 
-        let title = text("Circle to Search - Desktop Edition").size(40);
+        let logo_icon = text("🔍").size(64);
 
-        let btn = button(text("📸 Capture Screen"))
-            .padding([18, 40])
-            .style(|theme, status| app_theme::primary_button_style(theme, status))
-            .on_press(OrchestratorMessage::CaptureScreen);
+        let title = text("Circle to Search").size(36);
 
-        let settings_btn = button(text("⚙️ Settings").size(20))
-            .padding([18, 40])
-            .style(|theme, status| app_theme::purple_button_style(theme, status))
-            .on_press(OrchestratorMessage::OpenSettings);
+        let subtitle = text("Search anything on your screen instantly")
+            .size(16)
+            .style(|_theme: &iced::Theme| iced::widget::text::Style {
+                color: Some(Color::from_rgba(0.6, 0.6, 0.6, 1.0)),
+            });
 
-        let system_tray_checkbox = iced::widget::checkbox(self.settings.run_in_system_tray)
-            .label("Run in system tray (app stays in background)")
-            .on_toggle(OrchestratorMessage::UpdateSystemTrayMode);
+        let header_section = column![logo_icon, title, subtitle]
+            .spacing(8)
+            .align_x(Alignment::Center);
 
-        let content = column![
-            title,
-            text("").size(20),
-            text("How to Use:").size(18),
-            text("• Click the button below to capture your screen"),
-            text("• Or press Alt+Shift+S anywhere on your computer"),
-            text("• Press Escape to close overlay"),
-            text("").size(20),
-            btn,
-            text("").size(10),
-            text(format!("Status: {}", &self.status)),
-            text("").size(20),
-            system_tray_checkbox,
-            text("").size(10),
-            settings_btn,
+        let capture_btn = button(
+            row![text("📸").size(24), text("Capture Screen").size(18)]
+                .spacing(12)
+                .align_y(Alignment::Center),
+        )
+        .padding([16, 48])
+        .style(|theme, status| app_theme::primary_button_style(theme, status))
+        .on_press(OrchestratorMessage::CaptureScreen);
+
+        let hotkey_hint = container(
+            text(format!(
+                "or press {} anywhere",
+                &self.settings.capture_hotkey
+            ))
+            .size(13)
+            .style(|_theme: &iced::Theme| iced::widget::text::Style {
+                color: Some(Color::from_rgba(0.5, 0.5, 0.5, 1.0)),
+            }),
+        );
+
+        let action_section = column![capture_btn, hotkey_hint]
+            .spacing(12)
+            .align_x(Alignment::Center);
+
+        let status_indicator = self.render_status_indicator();
+
+        let divider = container(text(""))
+            .width(Length::Fixed(200.0))
+            .height(Length::Fixed(1.0))
+            .style(|_theme| iced::widget::container::Style {
+                background: Some(Background::Color(Color::from_rgba(0.5, 0.5, 0.5, 0.3))),
+                ..Default::default()
+            });
+
+        let system_tray_row = row![
+            iced::widget::checkbox(self.settings.run_in_system_tray)
+                .on_toggle(OrchestratorMessage::UpdateSystemTrayMode),
+            text("Keep running in background").size(14),
         ]
         .spacing(10)
-        .padding(50)
+        .align_y(Alignment::Center);
+
+        let settings_btn = button(
+            row![text("⚙").size(16), text("Settings").size(14)]
+                .spacing(8)
+                .align_y(Alignment::Center),
+        )
+        .padding([10, 24])
+        .style(|theme, status| app_theme::secondary_button_style(theme, status))
+        .on_press(OrchestratorMessage::OpenSettings);
+
+        let footer_section = column![system_tray_row, settings_btn]
+            .spacing(16)
+            .align_x(Alignment::Center);
+
+        let content = column![
+            header_section,
+            Space::new().height(Length::Fixed(32.0)),
+            action_section,
+            Space::new().height(Length::Fixed(16.0)),
+            status_indicator,
+            divider,
+            footer_section,
+        ]
+        .spacing(4)
+        .padding(40)
         .align_x(Alignment::Center);
 
         container(content)
@@ -867,68 +924,129 @@ impl AppOrchestrator {
             .into()
     }
 
+    fn render_status_indicator(&self) -> Element<'_, OrchestratorMessage> {
+        let (status_color, status_icon) = match self.status.as_str() {
+            s if s.contains("Ready") => (Color::from_rgb(0.2, 0.8, 0.4), "●"),
+            s if s.contains("Loading") || s.contains("Initializing") => {
+                (Color::from_rgb(1.0, 0.8, 0.2), "○")
+            }
+            s if s.contains("Error") || s.contains("Failed") => {
+                (Color::from_rgb(1.0, 0.3, 0.3), "●")
+            }
+            _ => (Color::from_rgba(0.5, 0.5, 0.5, 1.0), "●"),
+        };
+
+        let status_text = row![
+            text(status_icon)
+                .size(12)
+                .style(move |_theme: &iced::Theme| iced::widget::text::Style {
+                    color: Some(status_color),
+                }),
+            text(&self.status)
+                .size(13)
+                .style(|_theme: &iced::Theme| iced::widget::text::Style {
+                    color: Some(Color::from_rgba(0.6, 0.6, 0.6, 1.0)),
+                }),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center);
+
+        container(status_text).into()
+    }
+
     fn render_settings_window(&self) -> Element<'_, OrchestratorMessage> {
         use iced::widget::{pick_list, text_input};
 
         let theme = app_theme::get_theme(&self.settings.theme_mode);
         let temp = self.temp_settings.as_ref().unwrap_or(&self.settings);
 
-        let title = text("Settings")
-            .size(32)
-            .width(Length::Fill)
+        let header_icon = text("⚙").size(48);
+        let title = text("Settings").size(28);
+        let header_section = column![header_icon, title]
+            .spacing(8)
             .align_x(Alignment::Center);
 
-        let search_url_label = text("Image Search URL Template:").size(16);
-        let search_url_input = text_input(
-            "https://lens.google.com/uploadbyurl?url={}",
-            &temp.image_search_url_template,
+        let search_section = self.render_settings_section(
+            "Search",
+            "🔍",
+            column![self.render_setting_row(
+                "Image Search URL",
+                "Template URL for reverse image search",
+                text_input(
+                    "https://lens.google.com/uploadbyurl?url={}",
+                    &temp.image_search_url_template,
+                )
+                .on_input(OrchestratorMessage::UpdateSearchUrl)
+                .padding(12)
+                .into(),
+            ),]
+            .spacing(12),
+        );
+
+        let hotkey_warning =
+            text("Requires app restart to take effect")
+                .size(11)
+                .style(|_theme: &iced::Theme| iced::widget::text::Style {
+                    color: Some(Color::from_rgba(1.0, 0.7, 0.0, 0.8)),
+                });
+
+        let keyboard_section = self.render_settings_section(
+            "Keyboard",
+            "⌨",
+            column![self.render_setting_row(
+                "Capture Hotkey",
+                "Global shortcut to start capture",
+                column![
+                    text_input("Alt+Shift+S", &temp.capture_hotkey)
+                        .on_input(OrchestratorMessage::UpdateHotkey)
+                        .padding(12),
+                    hotkey_warning,
+                ]
+                .spacing(4)
+                .into(),
+            ),]
+            .spacing(12),
+        );
+
+        let appearance_section = self.render_settings_section(
+            "Appearance",
+            "🎨",
+            column![self.render_setting_row(
+                "Theme",
+                "Choose light or dark mode",
+                pick_list(
+                    vec![ThemeMode::Dark, ThemeMode::Light,],
+                    Some(temp.theme_mode.clone()),
+                    OrchestratorMessage::UpdateTheme,
+                )
+                .padding(12)
+                .into(),
+            ),]
+            .spacing(12),
+        );
+
+        let save_btn = button(
+            row![text("💾").size(16), text("Save Changes").size(15)]
+                .spacing(10)
+                .align_y(Alignment::Center),
         )
-        .on_input(OrchestratorMessage::UpdateSearchUrl)
-        .padding(10);
-
-        let hotkey_label = text("Capture Hotkey:").size(16);
-        let hotkey_input = text_input("Alt+Shift+S", &temp.capture_hotkey)
-            .on_input(OrchestratorMessage::UpdateHotkey)
-            .padding(10);
-        let hotkey_warning = text("⚠️ Changing hotkey requires app restart")
-            .size(12)
-            .style(|_theme: &iced::Theme| iced::widget::text::Style {
-                color: Some(Color::from_rgb(1.0, 0.7, 0.0)),
-            });
-
-        let theme_label = text("Theme:").size(16);
-        let theme_picker = pick_list(
-            vec![
-                user_settings::ThemeMode::Dark,
-                user_settings::ThemeMode::Light,
-            ],
-            Some(temp.theme_mode.clone()),
-            OrchestratorMessage::UpdateTheme,
-        )
-        .padding(10);
-
-        let save_btn = button(text("💾 Save Settings"))
-            .padding([15, 40])
-            .style(|theme, status| app_theme::primary_button_style(theme, status))
-            .on_press(OrchestratorMessage::SaveSettings);
+        .padding([14, 36])
+        .style(|theme, status| app_theme::primary_button_style(theme, status))
+        .on_press(OrchestratorMessage::SaveSettings);
 
         let content = column![
-            title,
-            text("").size(20),
-            search_url_label,
-            search_url_input,
-            text("").size(10),
-            hotkey_label,
-            hotkey_input,
-            hotkey_warning,
-            text("").size(10),
-            theme_label,
-            theme_picker,
-            text("").size(30),
+            header_section,
+            Space::new().height(Length::Fixed(24.0)),
+            search_section,
+            Space::new().height(Length::Fixed(16.0)),
+            keyboard_section,
+            Space::new().height(Length::Fixed(16.0)),
+            appearance_section,
+            Space::new().height(Length::Fixed(28.0)),
             save_btn,
         ]
-        .spacing(8)
-        .padding(30)
+        .spacing(4)
+        .padding(32)
         .width(Length::Fill)
         .align_x(Alignment::Center);
 
@@ -944,6 +1062,170 @@ impl AppOrchestrator {
                 }
             })
             .into()
+    }
+
+    fn render_settings_section<'a>(
+        &self,
+        title: &'a str,
+        icon: &'a str,
+        content: iced::widget::Column<'a, OrchestratorMessage>,
+    ) -> Element<'a, OrchestratorMessage> {
+        let section_header = row![text(icon).size(18), text(title).size(16),]
+            .spacing(8)
+            .align_y(Alignment::Center);
+
+        let section_content = container(content)
+            .padding([12, 16])
+            .width(Length::Fill)
+            .style(|_theme| iced::widget::container::Style {
+                background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.3))),
+                border: iced::Border {
+                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
+                    width: 1.0,
+                    radius: 8.0.into(),
+                },
+                ..Default::default()
+            });
+
+        column![section_header, section_content]
+            .spacing(8)
+            .width(Length::Fill)
+            .into()
+    }
+
+    fn render_setting_row<'a>(
+        &self,
+        label: &'a str,
+        description: &'a str,
+        input: Element<'a, OrchestratorMessage>,
+    ) -> Element<'a, OrchestratorMessage> {
+        let label_col = column![
+            text(label).size(14),
+            text(description)
+                .size(11)
+                .style(|_theme: &iced::Theme| iced::widget::text::Style {
+                    color: Some(Color::from_rgba(0.6, 0.6, 0.6, 1.0)),
+                }),
+        ]
+        .spacing(2)
+        .width(Length::FillPortion(2));
+
+        let input_col = container(input).width(Length::FillPortion(3));
+
+        row![label_col, input_col]
+            .spacing(16)
+            .align_y(Alignment::Center)
+            .into()
+    }
+
+    fn handle_open_onboarding(&mut self) -> Task<OrchestratorMessage> {
+        log::info!("[ORCHESTRATOR] Opening onboarding window");
+
+        if self.onboarding_window_id.is_some()
+            && self
+                .windows
+                .contains_key(&self.onboarding_window_id.unwrap())
+        {
+            log::warn!("[ORCHESTRATOR] Onboarding window already exists and is open");
+            return Task::none();
+        }
+
+        let screen_recording_granted =
+            macos_permissions::macos::check_screen_recording_permission();
+        let accessibility_granted = macos_permissions::macos::check_accessibility_permission();
+        let launch_at_login = auto_launch::is_launch_at_login_enabled();
+
+        let onboarding_view = OnboardingView::new(
+            screen_recording_granted,
+            accessibility_granted,
+            launch_at_login,
+        );
+
+        let (id, task) = window::open(window::Settings {
+            size: Size::new(600.0, 700.0),
+            position: window::Position::Centered,
+            resizable: false,
+            ..Default::default()
+        });
+
+        self.onboarding_window_id = Some(id);
+        self.windows
+            .insert(id, AppWindow::Onboarding(onboarding_view));
+        log::info!("[ORCHESTRATOR] Onboarding window created with ID: {:?}", id);
+        task.discard()
+    }
+
+    fn handle_onboarding_message(
+        &mut self,
+        window_id: Id,
+        message: OnboardingMessage,
+    ) -> Task<OrchestratorMessage> {
+        log::debug!("[ORCHESTRATOR] Handling onboarding message: {:?}", message);
+
+        match message {
+            OnboardingMessage::OpenScreenRecordingSettings => {
+                macos_permissions::macos::open_screen_recording_settings();
+                return Task::none();
+            }
+            OnboardingMessage::OpenAccessibilitySettings => {
+                macos_permissions::macos::open_accessibility_settings();
+                return Task::none();
+            }
+            OnboardingMessage::RefreshPermissions => {
+                let screen_recording_granted =
+                    macos_permissions::macos::check_screen_recording_permission();
+                let accessibility_granted =
+                    macos_permissions::macos::check_accessibility_permission();
+
+                if let Some(AppWindow::Onboarding(view)) = self.windows.get_mut(&window_id) {
+                    view.update_permissions(screen_recording_granted, accessibility_granted);
+                }
+                return Task::none();
+            }
+            OnboardingMessage::FinishOnboarding => {
+                return self.handle_finish_onboarding(window_id);
+            }
+            _ => {}
+        }
+
+        if let Some(AppWindow::Onboarding(view)) = self.windows.get_mut(&window_id) {
+            view.handle_message(message);
+        }
+
+        Task::none()
+    }
+
+    fn handle_finish_onboarding(&mut self, window_id: Id) -> Task<OrchestratorMessage> {
+        log::info!("[ORCHESTRATOR] Finishing onboarding");
+
+        let launch_at_login =
+            if let Some(AppWindow::Onboarding(view)) = self.windows.get(&window_id) {
+                view.is_launch_at_login_enabled()
+            } else {
+                false
+            };
+
+        self.settings.onboarding_complete = true;
+        self.settings.launch_at_login = launch_at_login;
+
+        if let Err(error) = self.settings.save() {
+            log::error!("[ORCHESTRATOR] Failed to save settings: {}", error);
+        }
+
+        auto_launch::set_launch_at_login(launch_at_login);
+
+        self.windows.remove(&window_id);
+        self.onboarding_window_id = None;
+
+        let close_task = window::close(window_id);
+
+        let open_main_task = if !self.settings.run_in_system_tray {
+            Task::done(OrchestratorMessage::OpenMainWindow)
+        } else {
+            Task::none()
+        };
+
+        Task::batch(vec![close_task, open_main_task])
     }
 }
 
@@ -998,7 +1280,7 @@ mod tests {
             Arc::new(MockMouseProvider),
             Arc::new(MockOcrService),
             Arc::new(MockSearchProvider),
-            user_settings::UserSettings::default(),
+            UserSettings::default(),
         )
     }
 
@@ -1046,7 +1328,7 @@ mod tests {
     #[test]
     fn test_update_settings_modifies_temp_settings() {
         let mut orchestrator = create_test_orchestrator();
-        orchestrator.temp_settings = Some(user_settings::UserSettings::default());
+        orchestrator.temp_settings = Some(UserSettings::default());
 
         let new_url = "https://new.search.com?q={}".to_string();
         let _ = orchestrator.update(OrchestratorMessage::UpdateSearchUrl(new_url.clone()));
@@ -1063,7 +1345,7 @@ mod tests {
     #[test]
     fn test_update_hotkey_modifies_temp_settings() {
         let mut orchestrator = create_test_orchestrator();
-        orchestrator.temp_settings = Some(user_settings::UserSettings::default());
+        orchestrator.temp_settings = Some(UserSettings::default());
 
         let new_hotkey = "Ctrl+Shift+C".to_string();
         let _ = orchestrator.update(OrchestratorMessage::UpdateHotkey(new_hotkey.clone()));
@@ -1077,15 +1359,13 @@ mod tests {
     #[test]
     fn test_update_theme_modifies_temp_settings() {
         let mut orchestrator = create_test_orchestrator();
-        orchestrator.temp_settings = Some(user_settings::UserSettings::default());
+        orchestrator.temp_settings = Some(UserSettings::default());
 
-        let _ = orchestrator.update(OrchestratorMessage::UpdateTheme(
-            user_settings::ThemeMode::Light,
-        ));
+        let _ = orchestrator.update(OrchestratorMessage::UpdateTheme(ThemeMode::Light));
 
         assert!(matches!(
             orchestrator.temp_settings.unwrap().theme_mode,
-            user_settings::ThemeMode::Light
+            ThemeMode::Light
         ));
     }
 

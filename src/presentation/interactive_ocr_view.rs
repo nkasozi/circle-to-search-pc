@@ -1,7 +1,7 @@
 use iced::widget::{button, canvas, column, container, image, row, stack, text};
 use iced::{Alignment, Color, Element, Length, Point, Rectangle, Size};
 
-use crate::core::models::{CaptureBuffer, OcrResult};
+use crate::core::models::{CaptureBuffer, OcrResult, ThemeMode};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SearchState {
@@ -30,7 +30,7 @@ pub struct InteractiveOcrView {
     drag_start: Option<usize>,
     is_selecting: bool,
     search_state: SearchState,
-    theme_mode: crate::user_settings::ThemeMode,
+    theme_mode: ThemeMode,
     copy_confirmation: bool,
 }
 
@@ -50,10 +50,7 @@ pub enum InteractiveOcrMessage {
 }
 
 impl InteractiveOcrView {
-    pub fn build(
-        capture_buffer: CaptureBuffer,
-        theme_mode: crate::user_settings::ThemeMode,
-    ) -> Self {
+    pub fn build(capture_buffer: CaptureBuffer, theme_mode: ThemeMode) -> Self {
         log::info!(
             "[INTERACTIVE_OCR] Creating view for cropped image: {}x{}",
             capture_buffer.width,
@@ -348,7 +345,7 @@ impl InteractiveOcrView {
         if !self.selected_chars.is_empty() {
             let copy_btn = button(text("📋 Copy"))
                 .padding([12, 24])
-                .style(|theme, status| crate::app_theme::purple_button_style(theme, status))
+                .style(|theme, status| super::app_theme::purple_button_style(theme, status))
                 .on_press(InteractiveOcrMessage::CopySelected);
 
             button_row = button_row.push(copy_btn);
@@ -366,7 +363,7 @@ impl InteractiveOcrView {
 
         let mut search_btn = button(text(search_button_text))
             .padding([12, 24])
-            .style(|theme, status| crate::app_theme::primary_button_style(theme, status));
+            .style(|theme, status| super::app_theme::primary_button_style(theme, status));
 
         if !is_searching {
             search_btn = search_btn.on_press(InteractiveOcrMessage::SearchSelected);
@@ -374,7 +371,7 @@ impl InteractiveOcrView {
 
         let close_btn = button(text("✖ Close (Esc)"))
             .padding([12, 24])
-            .style(|theme, status| crate::app_theme::danger_button_style(theme, status))
+            .style(|theme, status| super::app_theme::danger_button_style(theme, status))
             .on_press(InteractiveOcrMessage::Close);
 
         button_row = button_row.push(search_btn).push(close_btn);
@@ -392,7 +389,7 @@ impl InteractiveOcrView {
 
         let content = content_column;
 
-        let theme = crate::app_theme::get_theme(&self.theme_mode);
+        let theme = super::app_theme::get_theme(&self.theme_mode);
 
         container(content)
             .width(Length::Fill)

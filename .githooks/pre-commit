@@ -1,0 +1,14 @@
+#!/bin/sh
+
+echo "Running cargo fmt..."
+cargo fmt --all
+
+if [ $? -ne 0 ]; then
+    echo "cargo fmt failed"
+    exit 1
+fi
+
+git add -u
+
+echo "Code formatted successfully"
+exit 0

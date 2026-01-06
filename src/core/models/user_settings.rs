@@ -32,6 +32,10 @@ pub struct UserSettings {
     pub theme_mode: ThemeMode,
     #[serde(default)]
     pub run_in_system_tray: bool,
+    #[serde(default)]
+    pub onboarding_complete: bool,
+    #[serde(default)]
+    pub launch_at_login: bool,
 }
 
 impl Default for UserSettings {
@@ -40,7 +44,9 @@ impl Default for UserSettings {
             image_search_url_template: global_constants::DEFAULT_IMAGE_SEARCH_URL.to_string(),
             capture_hotkey: global_constants::DEFAULT_CAPTURE_HOTKEY.to_string(),
             theme_mode: ThemeMode::default(),
-            run_in_system_tray: false,
+            run_in_system_tray: true,
+            onboarding_complete: false,
+            launch_at_login: false,
         }
     }
 }
@@ -139,7 +145,9 @@ mod tests {
             global_constants::DEFAULT_CAPTURE_HOTKEY
         );
         assert_eq!(settings.theme_mode, ThemeMode::Dark);
-        assert!(!settings.run_in_system_tray);
+        assert!(settings.run_in_system_tray);
+        assert!(!settings.onboarding_complete);
+        assert!(!settings.launch_at_login);
     }
 
     #[test]
@@ -149,6 +157,8 @@ mod tests {
             capture_hotkey: "ctrl+shift+a".to_string(),
             theme_mode: ThemeMode::Light,
             run_in_system_tray: true,
+            onboarding_complete: true,
+            launch_at_login: true,
         };
 
         let serialized = serde_json::to_string(&settings).unwrap();
@@ -161,6 +171,11 @@ mod tests {
         assert_eq!(deserialized.capture_hotkey, settings.capture_hotkey);
         assert_eq!(deserialized.theme_mode, settings.theme_mode);
         assert_eq!(deserialized.run_in_system_tray, settings.run_in_system_tray);
+        assert_eq!(
+            deserialized.onboarding_complete,
+            settings.onboarding_complete
+        );
+        assert_eq!(deserialized.launch_at_login, settings.launch_at_login);
     }
 
     #[test]
@@ -185,6 +200,8 @@ mod tests {
             capture_hotkey: "ctrl+shift+t".to_string(),
             theme_mode: ThemeMode::Light,
             run_in_system_tray: true,
+            onboarding_complete: true,
+            launch_at_login: true,
         };
 
         let test_file = temp_dir.join("test_settings.json");
@@ -206,6 +223,14 @@ mod tests {
         assert_eq!(
             loaded_settings.run_in_system_tray,
             original_settings.run_in_system_tray
+        );
+        assert_eq!(
+            loaded_settings.onboarding_complete,
+            original_settings.onboarding_complete
+        );
+        assert_eq!(
+            loaded_settings.launch_at_login,
+            original_settings.launch_at_login
         );
 
         std::fs::remove_dir_all(&temp_dir).ok();

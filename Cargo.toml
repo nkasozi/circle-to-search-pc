@@ -40,6 +40,7 @@ open = "5.3"
 base64 = "0.22"
 dirs = "5.0"
 sysinfo = "0.33"
+auto-launch = "0.5"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.26"
@@ -55,7 +56,7 @@ category = "Utility"
 short_description = "Circle to Search for Desktop"
 long_description = "A desktop application that brings Google's Circle to Search feature to your Mac"
 copyright = "Copyright (c) 2026"
-icon = ["assets/icon.png"]
+icon = ["assets/icon.icns", "assets/icon.png"]
 resources = ["tessdata"]
 
 [profile.dev]

@@ -11,39 +11,58 @@ pub mod macos {
 
     const LOG_TAG_PERMISSIONS: &str = "[PERMISSIONS]";
 
-    pub fn request_screen_recording_permission() -> bool {
+    pub fn check_screen_recording_permission() -> bool {
         log::info!(
             "{} Checking screen recording permission",
             LOG_TAG_PERMISSIONS
         );
 
-        let has_permission = check_screen_recording_permission();
+        let has_permission = check_screen_recording_permission_internal();
 
-        if !has_permission {
+        if has_permission {
+            log::info!(
+                "{} Screen recording permission granted",
+                LOG_TAG_PERMISSIONS
+            );
+        } else {
             log::warn!(
                 "{} Screen recording permission not granted",
                 LOG_TAG_PERMISSIONS
             );
-            log::warn!(
-                "{} Please grant Screen Recording permission in System Settings > Privacy & Security > Screen Recording",
-                LOG_TAG_PERMISSIONS
-            );
-            show_permission_notification(
-                "Screen Recording",
-                "Circle to Search needs screen recording permission. Opening System Settings..."
-            );
-            open_system_preferences("Screen Recording");
-            return false;
         }
 
-        log::info!(
-            "{} Screen recording permission granted",
-            LOG_TAG_PERMISSIONS
-        );
-        true
+        has_permission
     }
 
-    fn check_screen_recording_permission() -> bool {
+    pub fn check_accessibility_permission() -> bool {
+        log::info!("{} Checking accessibility permission", LOG_TAG_PERMISSIONS);
+
+        let has_permission = check_accessibility_permission_internal(false);
+
+        if has_permission {
+            log::info!("{} Accessibility permission granted", LOG_TAG_PERMISSIONS);
+        } else {
+            log::warn!(
+                "{} Accessibility permission not granted",
+                LOG_TAG_PERMISSIONS
+            );
+        }
+
+        has_permission
+    }
+
+    pub fn open_screen_recording_settings() {
+        log::info!("{} Opening screen recording settings", LOG_TAG_PERMISSIONS);
+        open_system_preferences("Screen Recording");
+    }
+
+    pub fn open_accessibility_settings() {
+        log::info!("{} Opening accessibility settings", LOG_TAG_PERMISSIONS);
+        check_accessibility_permission_internal(true);
+        open_system_preferences("Accessibility");
+    }
+
+    fn check_screen_recording_permission_internal() -> bool {
         use std::ptr;
 
         unsafe {
@@ -72,7 +91,8 @@ pub mod macos {
                 *const std::ffi::c_void,
             ) -> *const std::ffi::c_void;
 
-            let func_name = std::ffi::CString::new("CGDisplayStreamCreateWithDispatchQueue").unwrap();
+            let func_name =
+                std::ffi::CString::new("CGDisplayStreamCreateWithDispatchQueue").unwrap();
             let func_ptr = libc::dlsym(lib, func_name.as_ptr());
 
             if func_ptr.is_null() {
@@ -93,36 +113,7 @@ pub mod macos {
         }
     }
 
-    pub fn request_accessibility_permission() -> bool {
-        log::info!("{} Checking accessibility permission", LOG_TAG_PERMISSIONS);
-
-        let has_permission = check_accessibility_permission(false);
-
-        if !has_permission {
-            log::warn!(
-                "{} Accessibility permission not granted, triggering prompt",
-                LOG_TAG_PERMISSIONS
-            );
-
-            check_accessibility_permission(true);
-
-            log::warn!(
-                "{} Please grant Accessibility permission in System Settings > Privacy & Security > Accessibility",
-                LOG_TAG_PERMISSIONS
-            );
-            show_permission_notification(
-                "Accessibility",
-                "Circle to Search needs accessibility permission. Opening System Settings..."
-            );
-            open_system_preferences("Accessibility");
-            return false;
-        }
-
-        log::info!("{} Accessibility permission granted", LOG_TAG_PERMISSIONS);
-        true
-    }
-
-    fn check_accessibility_permission(prompt: bool) -> bool {
+    fn check_accessibility_permission_internal(prompt: bool) -> bool {
         use std::ffi::CString;
         use std::ptr;
 
@@ -142,7 +133,8 @@ pub mod macos {
                 return true;
             }
 
-            type AXIsProcessTrustedWithOptionsFn = unsafe extern "C" fn(*const libc::c_void) -> bool;
+            type AXIsProcessTrustedWithOptionsFn =
+                unsafe extern "C" fn(*const libc::c_void) -> bool;
 
             let func_name = CString::new("AXIsProcessTrustedWithOptions").unwrap();
             let func_ptr = libc::dlsym(lib, func_name.as_ptr());
@@ -172,14 +164,6 @@ pub mod macos {
 
             result
         }
-    }
-
-    fn show_permission_notification(permission_name: &str, _message: &str) {
-        log::info!(
-            "{} Permission request for: {}",
-            LOG_TAG_PERMISSIONS,
-            permission_name
-        );
     }
 
     fn open_system_preferences(permission_type: &str) {
@@ -223,11 +207,15 @@ pub mod macos {
 
 #[cfg(not(target_os = "macos"))]
 pub mod macos {
-    pub fn request_screen_recording_permission() -> bool {
+    pub fn check_screen_recording_permission() -> bool {
         true
     }
 
-    pub fn request_accessibility_permission() -> bool {
+    pub fn check_accessibility_permission() -> bool {
         true
     }
+
+    pub fn open_screen_recording_settings() {}
+
+    pub fn open_accessibility_settings() {}
 }

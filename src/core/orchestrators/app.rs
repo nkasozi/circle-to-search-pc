@@ -5,12 +5,12 @@ use iced::{Element, Task};
 
 use crate::adapters::{GoogleLensSearchProvider, ImgbbImageHostingService, TesseractOcrService};
 use crate::core::interfaces::adapters::OcrService;
-use crate::core::models::OcrResult;
+use crate::core::models::{OcrResult, UserSettings};
 use crate::core::orchestrators::app_orchestrator::{AppOrchestrator, OrchestratorMessage};
 use crate::ports::{
-    GlobalKeyboardEvent, GlobalKeyboardListener, SystemMousePositionProvider, XcapScreenCapturer,
+    GlobalKeyboardEvent, GlobalKeyboardListener, SystemMousePositionProvider, SystemTray,
+    XcapScreenCapturer,
 };
-use crate::user_settings;
 
 struct DummyOcrService;
 
@@ -26,16 +26,16 @@ impl OcrService for DummyOcrService {
 
 pub struct CircleApp {
     orchestrator: AppOrchestrator,
-    _tray: Option<crate::system_tray::SystemTray>,
+    _tray: Option<SystemTray>,
 }
 
 impl CircleApp {
     pub fn build() -> (Self, Task<OrchestratorMessage>) {
         log::info!("[APP] Initializing application");
 
-        let settings = user_settings::UserSettings::load().unwrap_or_else(|e| {
+        let settings = UserSettings::load().unwrap_or_else(|e| {
             log::warn!("[APP] Failed to load settings: {}, using defaults", e);
-            user_settings::UserSettings::default()
+            UserSettings::default()
         });
 
         let image_hosting_service = Arc::new(ImgbbImageHostingService::new());
@@ -44,7 +44,8 @@ impl CircleApp {
             settings.image_search_url_template.clone(),
         ));
 
-        let should_show_window = !settings.run_in_system_tray;
+        let needs_onboarding = !settings.onboarding_complete;
+        let should_show_main_window = !settings.run_in_system_tray && !needs_onboarding;
 
         let orchestrator = AppOrchestrator::build(
             Arc::new(XcapScreenCapturer::initialize()),
@@ -54,7 +55,7 @@ impl CircleApp {
             settings,
         );
 
-        let tray = match crate::system_tray::SystemTray::build() {
+        let tray = match SystemTray::build() {
             Ok(tray) => {
                 log::info!("[APP] System tray initialized successfully");
                 Some(tray)
@@ -78,7 +79,10 @@ impl CircleApp {
             }
         })];
 
-        if should_show_window {
+        if needs_onboarding {
+            log::info!("[APP] Onboarding not complete, showing onboarding window");
+            tasks.push(Task::done(OrchestratorMessage::OpenOnboarding));
+        } else if should_show_main_window {
             log::info!("[APP] System tray mode disabled, showing main window");
             tasks.push(Task::done(OrchestratorMessage::OpenMainWindow));
         } else {
@@ -128,7 +132,7 @@ impl CircleApp {
                     |mut output: futures::channel::mpsc::Sender<OrchestratorMessage>| async move {
                         loop {
                             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                            if let Some(event) = crate::system_tray::SystemTray::poll_events() {
+                            if let Some(event) = SystemTray::poll_events() {
                                 let _ = output.try_send(OrchestratorMessage::TrayEvent(event));
                             }
                         }
