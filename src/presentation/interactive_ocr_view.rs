@@ -13,6 +13,13 @@ pub enum SearchState {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum CopyState {
+    Idle,
+    Success,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct CharPosition {
     pub word_index: usize,
     pub char_index: usize,
@@ -32,7 +39,7 @@ pub struct InteractiveOcrView {
     is_selecting: bool,
     search_state: SearchState,
     theme_mode: ThemeMode,
-    copy_confirmation: bool,
+    copy_state: CopyState,
 }
 
 #[derive(Debug, Clone)]
@@ -70,7 +77,7 @@ impl InteractiveOcrView {
             is_selecting: false,
             search_state: SearchState::Idle,
             theme_mode,
-            copy_confirmation: false,
+            copy_state: CopyState::Idle,
         }
     }
 
@@ -172,11 +179,11 @@ impl InteractiveOcrView {
                     match copy_text_to_clipboard(&selected_text) {
                         Ok(()) => {
                             log::info!("[INTERACTIVE_OCR] Text copied to clipboard");
-                            self.copy_confirmation = true;
+                            self.copy_state = CopyState::Success;
                         }
                         Err(error) => {
                             log::error!("[INTERACTIVE_OCR] Failed to copy to clipboard: {}", error);
-                            self.copy_confirmation = false;
+                            self.copy_state = CopyState::Failed;
                         }
                     }
                 }
@@ -202,7 +209,7 @@ impl InteractiveOcrView {
                 self.search_state = SearchState::Idle;
             }
             InteractiveOcrMessage::HideToast => {
-                self.copy_confirmation = false;
+                self.copy_state = CopyState::Idle;
             }
             InteractiveOcrMessage::SelectAll => {
                 log::info!(
@@ -336,45 +343,101 @@ impl InteractiveOcrView {
                 snap: false,
             });
 
-        let status_banner_text = if self.copy_confirmation {
-            "✓ Text copied to clipboard"
-        } else if self.selected_chars.is_empty() {
+        let copy_notification_element: Option<Element<'_, InteractiveOcrMessage>> =
+            match self.copy_state {
+                CopyState::Success => {
+                    let content = row![
+                        text("✓").size(20).style(|_theme: &iced::Theme| {
+                            iced::widget::text::Style {
+                                color: Some(Color::from_rgb(0.2, 0.8, 0.4)),
+                            }
+                        }),
+                        text(" Text copied to clipboard").size(18)
+                    ]
+                    .spacing(4)
+                    .align_y(Alignment::Center);
+
+                    Some(
+                        container(content)
+                            .padding([12, 20])
+                            .width(Length::Fill)
+                            .align_x(Alignment::Center)
+                            .style(|_theme| iced::widget::container::Style {
+                                background: Some(iced::Background::Color(Color::from_rgba(
+                                    0.2, 0.2, 0.2, 0.3,
+                                ))),
+                                border: Border {
+                                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
+                                    width: 1.0,
+                                    radius: 12.0.into(),
+                                },
+                                ..Default::default()
+                            })
+                            .into(),
+                    )
+                }
+                CopyState::Failed => {
+                    let content = row![
+                        text("✗").size(20).style(|_theme: &iced::Theme| {
+                            iced::widget::text::Style {
+                                color: Some(Color::from_rgb(0.9, 0.3, 0.3)),
+                            }
+                        }),
+                        text(" Failed to copy text").size(18)
+                    ]
+                    .spacing(4)
+                    .align_y(Alignment::Center);
+
+                    Some(
+                        container(content)
+                            .padding([12, 20])
+                            .width(Length::Fill)
+                            .align_x(Alignment::Center)
+                            .style(|_theme| iced::widget::container::Style {
+                                background: Some(iced::Background::Color(Color::from_rgba(
+                                    0.2, 0.2, 0.2, 0.3,
+                                ))),
+                                border: Border {
+                                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
+                                    width: 1.0,
+                                    radius: 12.0.into(),
+                                },
+                                ..Default::default()
+                            })
+                            .into(),
+                    )
+                }
+                CopyState::Idle => None,
+            };
+
+        let instructions_text = if self.selected_chars.is_empty() {
             "Click on first character, then last character to select text. Press Ctrl+A to select all"
         } else {
             "Click on another character to extend selection or click Copy to copy selected text"
         };
 
-        let status_banner = container(text(status_banner_text).size(14).style(|_theme| {
-            iced::widget::text::Style {
-                color: Some(Color::WHITE),
-            }
-        }))
-        .padding([12, 20])
-        .width(Length::Fill)
-        .align_x(Alignment::Center)
-        .style(move |_theme| iced::widget::container::Style {
-            background: Some(iced::Background::Color(if self.copy_confirmation {
-                Color::from_rgba(0.098, 0.529, 0.329, 0.85)
-            } else {
-                Color::from_rgba(0.2, 0.2, 0.2, 0.6)
-            })),
-            border: Border {
-                color: if self.copy_confirmation {
-                    Color::from_rgba(0.122, 0.655, 0.408, 0.8)
-                } else {
-                    Color::from_rgba(0.4, 0.4, 0.4, 0.3)
+        let instructions_banner =
+            container(
+                text(instructions_text)
+                    .size(14)
+                    .style(|_theme| iced::widget::text::Style {
+                        color: Some(Color::WHITE),
+                    }),
+            )
+            .padding([12, 20])
+            .width(Length::Fill)
+            .align_x(Alignment::Center)
+            .style(|_theme| iced::widget::container::Style {
+                background: Some(iced::Background::Color(Color::from_rgba(
+                    0.2, 0.2, 0.2, 0.6,
+                ))),
+                border: Border {
+                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
+                    width: 1.0,
+                    radius: 10.0.into(),
                 },
-                width: 1.0,
-                radius: 10.0.into(),
-            },
-            shadow: Shadow {
-                color: Color::from_rgba(0.0, 0.0, 0.0, 0.3),
-                offset: Vector::new(0.0, 2.0),
-                blur_radius: 6.0,
-            },
-            text_color: None,
-            snap: false,
-        });
+                ..Default::default()
+            });
 
         let mut button_row = row![].spacing(12).align_y(Alignment::Center);
 
@@ -434,12 +497,18 @@ impl InteractiveOcrView {
                 snap: false,
             });
 
-        let content_column = column![title, image_panel, status_banner, buttons_panel]
+        let mut content_column = column![title, image_panel]
             .spacing(12)
             .padding(16)
             .width(Length::Fill)
             .height(Length::Fill)
             .align_x(Alignment::Center);
+
+        if let Some(notification) = copy_notification_element {
+            content_column = content_column.push(notification);
+        }
+
+        content_column = content_column.push(instructions_banner).push(buttons_panel);
 
         let theme = super::app_theme::get_theme(&self.theme_mode);
 
