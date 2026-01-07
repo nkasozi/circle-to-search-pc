@@ -1264,12 +1264,7 @@ impl AppOrchestrator {
         self.onboarding_window_id = None;
 
         let close_task = window::close(window_id);
-
-        let open_main_task = if !self.settings.run_in_system_tray {
-            Task::done(OrchestratorMessage::OpenMainWindow)
-        } else {
-            Task::none()
-        };
+        let open_main_task = Task::done(OrchestratorMessage::OpenMainWindow);
 
         Task::batch(vec![close_task, open_main_task])
     }
