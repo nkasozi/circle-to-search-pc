@@ -231,27 +231,38 @@ impl InteractiveOcrView {
 
         selected_positions.sort_by(|a, b| {
             let y_diff = (a.bounds.y - b.bounds.y).abs();
-            if y_diff > 10.0 {
+            let line_height_threshold = a.bounds.height * 0.5;
+            if y_diff > line_height_threshold {
                 a.bounds.y.partial_cmp(&b.bounds.y).unwrap()
             } else {
                 a.bounds.x.partial_cmp(&b.bounds.x).unwrap()
             }
         });
 
-        let is_vertical = self.detect_vertical_layout(&selected_positions);
-
         let mut result = String::new();
         let mut last_y = selected_positions[0].bounds.y;
         let mut last_word_idx = selected_positions[0].word_index;
+        let mut last_x_end = selected_positions[0].bounds.x + selected_positions[0].bounds.width;
 
         for pos in selected_positions {
-            if is_vertical && (pos.bounds.y - last_y).abs() > 10.0 {
+            let line_height_threshold = pos.bounds.height * 0.5;
+            let y_diff = (pos.bounds.y - last_y).abs();
+
+            if y_diff > line_height_threshold {
                 result.push('\n');
                 last_y = pos.bounds.y;
                 last_word_idx = pos.word_index;
+                last_x_end = pos.bounds.x + pos.bounds.width;
             } else if pos.word_index != last_word_idx {
-                result.push(' ');
+                let gap_between_words = pos.bounds.x - last_x_end;
+                let space_threshold = pos.bounds.width * 0.3;
+                if gap_between_words > space_threshold {
+                    result.push(' ');
+                }
                 last_word_idx = pos.word_index;
+                last_x_end = pos.bounds.x + pos.bounds.width;
+            } else {
+                last_x_end = pos.bounds.x + pos.bounds.width;
             }
             result.push(pos.character);
         }
@@ -259,6 +270,7 @@ impl InteractiveOcrView {
         result
     }
 
+    #[allow(dead_code)]
     fn detect_vertical_layout(&self, positions: &[&CharPosition]) -> bool {
         if positions.len() < 2 {
             return false;
