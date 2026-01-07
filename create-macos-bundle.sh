@@ -6,7 +6,7 @@ APP_NAME="Circle to Search"
 BUNDLE_NAME="Circle to Search.app"
 BUNDLE_ID="com.circle-to-search.app"
 EXECUTABLE_NAME="circle-to-search-pc"
-VERSION="0.1.0"
+VERSION="0.1.0.0"
 
 echo "Resetting macOS permissions for fresh install..."
 tccutil reset ScreenCapture "$BUNDLE_ID" 2>/dev/null && echo "  Screen Recording reset for $BUNDLE_ID" || echo "  Screen Recording: no existing entry"
