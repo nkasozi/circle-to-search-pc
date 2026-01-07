@@ -1,5 +1,5 @@
 use iced::widget::{button, canvas, column, container, image, row, stack, text};
-use iced::{Alignment, Color, Element, Length, Point, Rectangle, Size};
+use iced::{Alignment, Border, Color, Element, Length, Point, Rectangle, Shadow, Size, Vector};
 
 use crate::core::models::{CaptureBuffer, OcrResult, ThemeMode};
 use crate::infrastructure::utils::copy_text_to_clipboard;
@@ -289,7 +289,7 @@ impl InteractiveOcrView {
         };
 
         let title = text(status_text)
-            .size(20)
+            .size(18)
             .width(Length::Fill)
             .align_x(Alignment::Center);
 
@@ -302,6 +302,28 @@ impl InteractiveOcrView {
                 .into()
         };
 
+        let image_panel = container(image_with_overlay)
+            .padding(8)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(|_theme| iced::widget::container::Style {
+                background: Some(iced::Background::Color(Color::from_rgba(
+                    0.15, 0.15, 0.15, 1.0,
+                ))),
+                border: Border {
+                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
+                    width: 1.0,
+                    radius: 12.0.into(),
+                },
+                shadow: Shadow {
+                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.2),
+                    offset: Vector::new(0.0, 2.0),
+                    blur_radius: 8.0,
+                },
+                text_color: None,
+                snap: false,
+            });
+
         let status_banner_text = if self.copy_confirmation {
             "✓ Text copied to clipboard"
         } else if self.selected_chars.is_empty() {
@@ -310,43 +332,43 @@ impl InteractiveOcrView {
             "Click on another character to extend selection or click Copy to copy selected text"
         };
 
-        let status_banner = container(text(status_banner_text).size(16).style(|_theme| {
+        let status_banner = container(text(status_banner_text).size(14).style(|_theme| {
             iced::widget::text::Style {
                 color: Some(Color::WHITE),
             }
         }))
-        .padding([12, 24])
+        .padding([12, 20])
         .width(Length::Fill)
         .align_x(Alignment::Center)
         .style(move |_theme| iced::widget::container::Style {
             background: Some(iced::Background::Color(if self.copy_confirmation {
                 Color::from_rgba(0.098, 0.529, 0.329, 0.85)
             } else {
-                Color::from_rgba(0.1, 0.1, 0.1, 0.85)
+                Color::from_rgba(0.2, 0.2, 0.2, 0.6)
             })),
-            border: iced::Border {
+            border: Border {
                 color: if self.copy_confirmation {
                     Color::from_rgba(0.122, 0.655, 0.408, 0.8)
                 } else {
-                    Color::from_rgba(0.3, 0.6, 1.0, 0.8)
+                    Color::from_rgba(0.4, 0.4, 0.4, 0.3)
                 },
                 width: 1.0,
-                radius: 8.0.into(),
+                radius: 10.0.into(),
             },
-            shadow: iced::Shadow {
-                color: Color::from_rgba(0.0, 0.0, 0.0, 0.6),
-                offset: iced::Vector::new(0.0, 4.0),
-                blur_radius: 12.0,
+            shadow: Shadow {
+                color: Color::from_rgba(0.0, 0.0, 0.0, 0.3),
+                offset: Vector::new(0.0, 2.0),
+                blur_radius: 6.0,
             },
             text_color: None,
             snap: false,
         });
 
-        let mut button_row = row![].spacing(10).align_y(Alignment::Center);
+        let mut button_row = row![].spacing(12).align_y(Alignment::Center);
 
         if !self.selected_chars.is_empty() {
             let copy_btn = button(text("📋 Copy"))
-                .padding([12, 24])
+                .padding([14, 24])
                 .style(|theme, status| super::app_theme::purple_button_style(theme, status))
                 .on_press(InteractiveOcrMessage::CopySelected);
 
@@ -364,7 +386,7 @@ impl InteractiveOcrView {
         };
 
         let mut search_btn = button(text(search_button_text))
-            .padding([12, 24])
+            .padding([14, 24])
             .style(|theme, status| super::app_theme::primary_button_style(theme, status));
 
         if !is_searching {
@@ -372,28 +394,44 @@ impl InteractiveOcrView {
         }
 
         let close_btn = button(text("✖ Close (Esc)"))
-            .padding([12, 24])
+            .padding([14, 24])
             .style(|theme, status| super::app_theme::danger_button_style(theme, status))
             .on_press(InteractiveOcrMessage::Close);
 
         button_row = button_row.push(search_btn).push(close_btn);
 
-        let buttons = container(button_row)
+        let buttons_panel = container(button_row)
+            .padding([16, 20])
             .width(Length::Fill)
-            .align_x(Alignment::Center);
+            .align_x(Alignment::Center)
+            .style(|_theme| iced::widget::container::Style {
+                background: Some(iced::Background::Color(Color::from_rgba(
+                    0.2, 0.2, 0.2, 0.3,
+                ))),
+                border: Border {
+                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
+                    width: 1.0,
+                    radius: 12.0.into(),
+                },
+                shadow: Shadow {
+                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.2),
+                    offset: Vector::new(0.0, 2.0),
+                    blur_radius: 8.0,
+                },
+                text_color: None,
+                snap: false,
+            });
 
-        let content_column = column![title, image_with_overlay, status_banner, buttons]
+        let content_column = column![title, image_panel, status_banner, buttons_panel]
             .spacing(12)
-            .padding(15)
+            .padding(16)
             .width(Length::Fill)
             .height(Length::Fill)
             .align_x(Alignment::Center);
 
-        let content = content_column;
-
         let theme = super::app_theme::get_theme(&self.theme_mode);
 
-        container(content)
+        container(content_column)
             .width(Length::Fill)
             .height(Length::Fill)
             .style(move |_theme| {

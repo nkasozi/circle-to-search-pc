@@ -323,7 +323,7 @@ impl AppOrchestrator {
         }
 
         let (id, task) = window::open(window::Settings {
-            size: Size::new(700.0, 650.0),
+            size: Size::new(700.0, 800.0),
             position: window::Position::Centered,
             resizable: false,
             ..Default::default()
@@ -804,7 +804,7 @@ impl AppOrchestrator {
         }
 
         let (id, task) = window::open(window::Settings {
-            size: Size::new(500.0, 550.0),
+            size: Size::new(500.0, 800.0),
             position: window::Position::Centered,
             resizable: false,
             ..Default::default()
@@ -900,30 +900,40 @@ impl AppOrchestrator {
         .style(|theme, status| app_theme::primary_button_style(theme, status))
         .on_press(OrchestratorMessage::CaptureScreen);
 
-        let hotkey_hint = container(
-            text(format!(
-                "or press {} anywhere",
-                &self.settings.capture_hotkey
-            ))
-            .size(13)
-            .style(|_theme: &iced::Theme| iced::widget::text::Style {
-                color: Some(Color::from_rgba(0.5, 0.5, 0.5, 1.0)),
-            }),
-        );
+        let hotkey_hint = text(format!(
+            "or press {} anywhere",
+            &self.settings.capture_hotkey
+        ))
+        .size(13)
+        .style(|_theme: &iced::Theme| iced::widget::text::Style {
+            color: Some(Color::from_rgba(0.5, 0.5, 0.5, 1.0)),
+        });
 
-        let action_section = column![capture_btn, hotkey_hint]
+        let action_content = column![capture_btn, hotkey_hint]
             .spacing(12)
             .align_x(Alignment::Center);
 
-        let status_indicator = self.render_status_indicator();
-
-        let divider = container(text(""))
-            .width(Length::Fixed(200.0))
-            .height(Length::Fixed(1.0))
+        let action_panel = container(action_content)
+            .padding([24, 32])
+            .width(Length::Fill)
+            .align_x(Alignment::Center)
             .style(|_theme| iced::widget::container::Style {
-                background: Some(Background::Color(Color::from_rgba(0.5, 0.5, 0.5, 0.3))),
-                ..Default::default()
+                background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.3))),
+                border: iced::Border {
+                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
+                    width: 1.0,
+                    radius: 12.0.into(),
+                },
+                shadow: iced::Shadow {
+                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.2),
+                    offset: iced::Vector::new(0.0, 2.0),
+                    blur_radius: 8.0,
+                },
+                text_color: None,
+                snap: false,
             });
+
+        let status_indicator = self.render_status_indicator();
 
         let system_tray_row = row![
             iced::widget::checkbox(self.settings.run_in_system_tray)
@@ -938,26 +948,47 @@ impl AppOrchestrator {
                 .spacing(8)
                 .align_y(Alignment::Center),
         )
-        .padding([10, 24])
+        .padding([12, 24])
         .style(|theme, status| app_theme::secondary_button_style(theme, status))
         .on_press(OrchestratorMessage::OpenSettings);
 
-        let footer_section = column![system_tray_row, settings_btn]
+        let footer_content = column![system_tray_row, settings_btn]
             .spacing(16)
             .align_x(Alignment::Center);
 
+        let footer_panel = container(footer_content)
+            .padding([20, 24])
+            .width(Length::Fill)
+            .align_x(Alignment::Center)
+            .style(|_theme| iced::widget::container::Style {
+                background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.3))),
+                border: iced::Border {
+                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
+                    width: 1.0,
+                    radius: 12.0.into(),
+                },
+                shadow: iced::Shadow {
+                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.2),
+                    offset: iced::Vector::new(0.0, 2.0),
+                    blur_radius: 8.0,
+                },
+                text_color: None,
+                snap: false,
+            });
+
         let content = column![
             header_section,
-            Space::new().height(Length::Fixed(32.0)),
-            action_section,
+            Space::new().height(Length::Fixed(28.0)),
+            action_panel,
             Space::new().height(Length::Fixed(16.0)),
             status_indicator,
-            divider,
-            footer_section,
+            Space::new().height(Length::Fixed(20.0)),
+            footer_panel,
         ]
         .spacing(4)
-        .padding(40)
-        .align_x(Alignment::Center);
+        .padding(32)
+        .align_x(Alignment::Center)
+        .max_width(500);
 
         container(content)
             .width(Length::Fill)
@@ -1194,7 +1225,7 @@ impl AppOrchestrator {
         );
 
         let (id, task) = window::open(window::Settings {
-            size: Size::new(600.0, 700.0),
+            size: Size::new(600.0, 800.0),
             position: window::Position::Centered,
             resizable: false,
             ..Default::default()

@@ -1,5 +1,5 @@
-use iced::widget::{button, column, container, row, text};
-use iced::{Alignment, Background, Color, Element, Length};
+use iced::widget::{button, column, container, row, scrollable, text};
+use iced::{Alignment, Background, Border, Color, Element, Length, Shadow, Vector};
 
 use super::app_theme;
 
@@ -150,16 +150,20 @@ impl OnboardingView {
 
         let toast = self.render_toast();
 
-        let main_content = column![toast, progress_indicator, text("").size(20), content]
-            .spacing(10)
-            .padding(30)
+        let main_content = column![toast, progress_indicator, text("").size(16), content]
+            .spacing(8)
+            .padding(24)
+            .width(Length::Fill)
             .align_x(Alignment::Center);
 
-        container(main_content)
+        let scrollable_content = scrollable(main_content)
+            .width(Length::Fill)
+            .height(Length::Fill);
+
+        container(scrollable_content)
             .width(Length::Fill)
             .height(Length::Fill)
-            .center_x(Length::Fill)
-            .center_y(Length::Fill)
+            .padding(10)
             .style(|_theme| iced::widget::container::Style {
                 background: Some(Background::Color(Color::from_rgb(0.1, 0.1, 0.1))),
                 text_color: Some(Color::WHITE),
@@ -240,7 +244,7 @@ impl OnboardingView {
         )
         .size(16);
 
-        let features = column![
+        let features_content = column![
             text("What you'll be able to do:").size(16),
             text("• Press Alt+Shift+S to capture any part of your screen").size(14),
             text("• Extract text from images using OCR").size(14),
@@ -249,21 +253,40 @@ impl OnboardingView {
         ]
         .spacing(8);
 
+        let features_panel = container(features_content)
+            .padding([16, 20])
+            .width(Length::Fill)
+            .style(|_theme| iced::widget::container::Style {
+                background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.3))),
+                border: Border {
+                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
+                    width: 1.0,
+                    radius: 12.0.into(),
+                },
+                shadow: Shadow {
+                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.2),
+                    offset: Vector::new(0.0, 2.0),
+                    blur_radius: 8.0,
+                },
+                text_color: None,
+                snap: false,
+            });
+
         let next_button = button(text("Let's Get Started").size(16))
-            .padding([12, 24])
+            .padding([14, 32])
             .style(app_theme::primary_button_style)
             .on_press(OnboardingMessage::NextStep);
 
         column![
             title,
-            text("").size(20),
+            text("").size(16),
             description,
-            text("").size(20),
-            features,
-            text("").size(30),
+            text("").size(16),
+            features_panel,
+            text("").size(24),
             next_button,
         ]
-        .spacing(10)
+        .spacing(8)
         .align_x(Alignment::Center)
         .max_width(500)
         .into()
@@ -272,11 +295,43 @@ impl OnboardingView {
     fn render_screen_recording_step(&self) -> Element<'_, OnboardingMessage> {
         let title = text("Screen Recording Permission").size(24);
 
-        let status_icon = if self.screen_recording_granted {
-            text("✓ Permission Granted").size(18)
+        let status_content = if self.screen_recording_granted {
+            row![
+                text("✓")
+                    .size(20)
+                    .style(|_theme: &iced::Theme| iced::widget::text::Style {
+                        color: Some(Color::from_rgb(0.2, 0.8, 0.4)),
+                    }),
+                text(" Permission Granted").size(18)
+            ]
+            .spacing(4)
+            .align_y(Alignment::Center)
         } else {
-            text("⚠ Permission Required").size(18)
+            row![
+                text("⚠")
+                    .size(20)
+                    .style(|_theme: &iced::Theme| iced::widget::text::Style {
+                        color: Some(Color::from_rgb(1.0, 0.7, 0.0)),
+                    }),
+                text(" Permission Required").size(18)
+            ]
+            .spacing(4)
+            .align_y(Alignment::Center)
         };
+
+        let status_panel = container(status_content)
+            .padding([12, 20])
+            .width(Length::Fill)
+            .align_x(Alignment::Center)
+            .style(|_theme| iced::widget::container::Style {
+                background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.3))),
+                border: Border {
+                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
+                    width: 1.0,
+                    radius: 12.0.into(),
+                },
+                ..Default::default()
+            });
 
         let description = text(
             "Circle to Search needs permission to capture your screen so you can select \
@@ -285,7 +340,7 @@ impl OnboardingView {
         )
         .size(16);
 
-        let instructions = if !self.screen_recording_granted {
+        let instructions_content = if !self.screen_recording_granted {
             column![
                 text("To grant permission:").size(16),
                 text("1. Click the button below to open System Settings").size(14),
@@ -298,57 +353,105 @@ impl OnboardingView {
             column![text("You're all set! Click 'Continue' to proceed.").size(14)]
         };
 
+        let instructions_panel = container(instructions_content)
+            .padding([16, 20])
+            .width(Length::Fill)
+            .style(|_theme| iced::widget::container::Style {
+                background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.3))),
+                border: Border {
+                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
+                    width: 1.0,
+                    radius: 12.0.into(),
+                },
+                ..Default::default()
+            });
+
         let open_settings_button = button(text("Open System Settings").size(16))
-            .padding([12, 24])
+            .padding([14, 24])
             .style(app_theme::primary_button_style)
             .on_press(OnboardingMessage::OpenScreenRecordingSettings);
 
         let check_button = button(text("Check Permission").size(16))
-            .padding([12, 24])
+            .padding([14, 24])
             .style(app_theme::purple_button_style)
             .on_press(OnboardingMessage::RefreshPermissions);
 
-        let action_buttons =
-            row![open_settings_button, text("   "), check_button].align_y(Alignment::Center);
+        let action_buttons = row![open_settings_button, check_button]
+            .spacing(12)
+            .align_y(Alignment::Center);
 
         let continue_button = if self.screen_recording_granted {
             button(text("Continue").size(16))
-                .padding([12, 24])
+                .padding([14, 32])
                 .style(app_theme::primary_button_style)
                 .on_press(OnboardingMessage::NextStep)
         } else {
             button(text("Skip for now").size(14))
-                .padding([8, 16])
+                .padding([12, 24])
+                .style(app_theme::secondary_button_style)
                 .on_press(OnboardingMessage::NextStep)
         };
 
         column![
             title,
-            text("").size(10),
-            status_icon,
-            text("").size(20),
+            text("").size(12),
+            status_panel,
+            text("").size(16),
             description,
+            text("").size(16),
+            instructions_panel,
             text("").size(20),
-            instructions,
-            text("").size(30),
             action_buttons,
-            text("").size(15),
+            text("").size(16),
             continue_button,
         ]
-        .spacing(5)
+        .spacing(4)
         .align_x(Alignment::Center)
         .width(Length::Fill)
+        .max_width(500)
         .into()
     }
 
     fn render_input_monitoring_step(&self) -> Element<'_, OnboardingMessage> {
         let title = text("Input Monitoring Permission").size(24);
 
-        let status_icon = if self.input_monitoring_granted {
-            text("✓ Permission Granted").size(18)
+        let status_content = if self.input_monitoring_granted {
+            row![
+                text("✓")
+                    .size(20)
+                    .style(|_theme: &iced::Theme| iced::widget::text::Style {
+                        color: Some(Color::from_rgb(0.2, 0.8, 0.4)),
+                    }),
+                text(" Permission Granted").size(18)
+            ]
+            .spacing(4)
+            .align_y(Alignment::Center)
         } else {
-            text("⚠ Permission Required").size(18)
+            row![
+                text("⚠")
+                    .size(20)
+                    .style(|_theme: &iced::Theme| iced::widget::text::Style {
+                        color: Some(Color::from_rgb(1.0, 0.7, 0.0)),
+                    }),
+                text(" Permission Required").size(18)
+            ]
+            .spacing(4)
+            .align_y(Alignment::Center)
         };
+
+        let status_panel = container(status_content)
+            .padding([12, 20])
+            .width(Length::Fill)
+            .align_x(Alignment::Center)
+            .style(|_theme| iced::widget::container::Style {
+                background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.3))),
+                border: Border {
+                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
+                    width: 1.0,
+                    radius: 12.0.into(),
+                },
+                ..Default::default()
+            });
 
         let description = text(
             "Circle to Search needs Input Monitoring permission to detect the keyboard shortcut \
@@ -357,7 +460,7 @@ impl OnboardingView {
         )
         .size(16);
 
-        let instructions = if !self.input_monitoring_granted {
+        let instructions_content = if !self.input_monitoring_granted {
             column![
                 text("To grant permission:").size(16),
                 text("1. Click the button below to open System Settings").size(14),
@@ -370,46 +473,62 @@ impl OnboardingView {
             column![text("You're all set! Click 'Continue' to proceed.").size(14)]
         };
 
+        let instructions_panel = container(instructions_content)
+            .padding([16, 20])
+            .width(Length::Fill)
+            .style(|_theme| iced::widget::container::Style {
+                background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.3))),
+                border: Border {
+                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
+                    width: 1.0,
+                    radius: 12.0.into(),
+                },
+                ..Default::default()
+            });
+
         let open_settings_button = button(text("Open System Settings").size(16))
-            .padding([12, 24])
+            .padding([14, 24])
             .style(app_theme::primary_button_style)
             .on_press(OnboardingMessage::OpenInputMonitoringSettings);
 
         let check_button = button(text("Check Permission").size(16))
-            .padding([12, 24])
+            .padding([14, 24])
             .style(app_theme::purple_button_style)
             .on_press(OnboardingMessage::RefreshPermissions);
 
-        let action_buttons =
-            row![open_settings_button, text("   "), check_button].align_y(Alignment::Center);
+        let action_buttons = row![open_settings_button, check_button]
+            .spacing(12)
+            .align_y(Alignment::Center);
 
         let continue_button = if self.input_monitoring_granted {
             button(text("Continue").size(16))
-                .padding([12, 24])
+                .padding([14, 32])
                 .style(app_theme::primary_button_style)
                 .on_press(OnboardingMessage::NextStep)
         } else {
             button(text("Skip for now").size(14))
-                .padding([8, 16])
+                .padding([12, 24])
+                .style(app_theme::secondary_button_style)
                 .on_press(OnboardingMessage::NextStep)
         };
 
         column![
             title,
-            text("").size(10),
-            status_icon,
-            text("").size(20),
+            text("").size(12),
+            status_panel,
+            text("").size(16),
             description,
+            text("").size(16),
+            instructions_panel,
             text("").size(20),
-            instructions,
-            text("").size(30),
             action_buttons,
-            text("").size(15),
+            text("").size(16),
             continue_button,
         ]
-        .spacing(5)
+        .spacing(4)
         .align_x(Alignment::Center)
         .width(Length::Fill)
+        .max_width(500)
         .into()
     }
 
@@ -428,31 +547,50 @@ impl OnboardingView {
             "☐ Launch Circle to Search when I log in"
         };
 
-        let auto_start_toggle = button(text(checkbox_label).size(16))
-            .padding([12, 24])
-            .on_press(OnboardingMessage::ToggleLaunchAtLogin(
-                !self.launch_at_login,
-            ));
+        let auto_start_content = column![
+            button(text(checkbox_label).size(16))
+                .padding([14, 24])
+                .on_press(OnboardingMessage::ToggleLaunchAtLogin(
+                    !self.launch_at_login
+                )),
+            text("You can change this setting later in the app preferences.")
+                .size(13)
+                .style(|_theme: &iced::Theme| iced::widget::text::Style {
+                    color: Some(Color::from_rgba(0.6, 0.6, 0.6, 1.0)),
+                }),
+        ]
+        .spacing(12)
+        .align_x(Alignment::Center);
 
-        let info_text = text("You can change this setting later in the app preferences.").size(14);
+        let auto_start_panel = container(auto_start_content)
+            .padding([20, 24])
+            .width(Length::Fill)
+            .align_x(Alignment::Center)
+            .style(|_theme| iced::widget::container::Style {
+                background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.3))),
+                border: Border {
+                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
+                    width: 1.0,
+                    radius: 12.0.into(),
+                },
+                ..Default::default()
+            });
 
         let next_button = button(text("Continue").size(16))
-            .padding([12, 24])
+            .padding([14, 32])
             .style(app_theme::primary_button_style)
             .on_press(OnboardingMessage::NextStep);
 
         column![
             title,
-            text("").size(20),
+            text("").size(16),
             description,
-            text("").size(30),
-            auto_start_toggle,
             text("").size(20),
-            info_text,
-            text("").size(30),
+            auto_start_panel,
+            text("").size(24),
             next_button,
         ]
-        .spacing(5)
+        .spacing(4)
         .align_x(Alignment::Center)
         .max_width(500)
         .into()
@@ -463,16 +601,34 @@ impl OnboardingView {
 
         let description = text("Circle to Search is ready to use.").size(16);
 
+        let screen_status_color = if self.screen_recording_granted {
+            Color::from_rgb(0.2, 0.8, 0.4)
+        } else {
+            Color::from_rgb(1.0, 0.4, 0.4)
+        };
+
+        let input_monitoring_color = if self.input_monitoring_granted {
+            Color::from_rgb(0.2, 0.8, 0.4)
+        } else {
+            Color::from_rgb(1.0, 0.4, 0.4)
+        };
+
+        let auto_start_color = if self.launch_at_login {
+            Color::from_rgb(0.2, 0.8, 0.4)
+        } else {
+            Color::from_rgba(0.6, 0.6, 0.6, 1.0)
+        };
+
         let screen_status = if self.screen_recording_granted {
             "✓ Screen Recording: Enabled"
         } else {
-            "✗ Screen Recording: Not enabled (limited functionality)"
+            "✗ Screen Recording: Not enabled"
         };
 
         let input_monitoring_status = if self.input_monitoring_granted {
             "✓ Input Monitoring: Enabled"
         } else {
-            "✗ Input Monitoring: Not enabled (use tray menu to capture)"
+            "✗ Input Monitoring: Not enabled"
         };
 
         let auto_start_status = if self.launch_at_login {
@@ -481,47 +637,93 @@ impl OnboardingView {
             "○ Auto-start: Disabled"
         };
 
-        let permissions_summary = column![
+        let permissions_content = column![
             text("Setup Summary:").size(16),
-            text(screen_status).size(14),
-            text(input_monitoring_status).size(14),
-            text(auto_start_status).size(14),
+            text(screen_status)
+                .size(14)
+                .style(move |_theme: &iced::Theme| {
+                    iced::widget::text::Style {
+                        color: Some(screen_status_color),
+                    }
+                }),
+            text(input_monitoring_status)
+                .size(14)
+                .style(move |_theme: &iced::Theme| {
+                    iced::widget::text::Style {
+                        color: Some(input_monitoring_color),
+                    }
+                }),
+            text(auto_start_status)
+                .size(14)
+                .style(move |_theme: &iced::Theme| {
+                    iced::widget::text::Style {
+                        color: Some(auto_start_color),
+                    }
+                }),
         ]
-        .spacing(6);
+        .spacing(8);
 
-        let hotkey_info = column![
+        let permissions_panel = container(permissions_content)
+            .padding([16, 20])
+            .width(Length::Fill)
+            .style(|_theme| iced::widget::container::Style {
+                background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.3))),
+                border: Border {
+                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
+                    width: 1.0,
+                    radius: 12.0.into(),
+                },
+                ..Default::default()
+            });
+
+        let hotkey_content = column![
             text("How to use:").size(16),
             text("• Press Alt+Shift+S to start a capture").size(14),
             text("• Or right-click the system tray icon").size(14),
             text("• Draw a rectangle around what you want to search").size(14),
         ]
-        .spacing(6);
+        .spacing(8);
+
+        let hotkey_panel = container(hotkey_content)
+            .padding([16, 20])
+            .width(Length::Fill)
+            .style(|_theme| iced::widget::container::Style {
+                background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.3))),
+                border: Border {
+                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
+                    width: 1.0,
+                    radius: 12.0.into(),
+                },
+                ..Default::default()
+            });
 
         let finish_button = button(text("Start Using Circle to Search").size(16))
-            .padding([12, 24])
+            .padding([14, 32])
             .style(app_theme::primary_button_style)
             .on_press(OnboardingMessage::FinishOnboarding);
 
         let back_button = button(text("← Back to Setup").size(14))
-            .padding([8, 16])
+            .padding([12, 24])
+            .style(app_theme::secondary_button_style)
             .on_press(OnboardingMessage::BackToStart);
 
         column![
             title,
-            text("").size(20),
+            text("").size(12),
             description,
-            text("").size(30),
-            permissions_summary,
+            text("").size(16),
+            permissions_panel,
+            text("").size(12),
+            hotkey_panel,
             text("").size(20),
-            hotkey_info,
-            text("").size(30),
             finish_button,
-            text("").size(15),
+            text("").size(12),
             back_button,
         ]
-        .spacing(5)
+        .spacing(4)
         .align_x(Alignment::Center)
         .width(Length::Fill)
+        .max_width(500)
         .into()
     }
 }
