@@ -1178,12 +1178,13 @@ impl AppOrchestrator {
 
         let screen_recording_granted =
             macos_permissions::macos::check_screen_recording_permission();
-        let accessibility_granted = macos_permissions::macos::check_accessibility_permission();
+        let input_monitoring_granted =
+            macos_permissions::macos::check_input_monitoring_permission();
         let launch_at_login = auto_launch::is_launch_at_login_enabled();
 
         let onboarding_view = OnboardingView::new(
             screen_recording_granted,
-            accessibility_granted,
+            input_monitoring_granted,
             launch_at_login,
         );
 
@@ -1213,18 +1214,18 @@ impl AppOrchestrator {
                 macos_permissions::macos::open_screen_recording_settings();
                 return Task::none();
             }
-            OnboardingMessage::OpenAccessibilitySettings => {
-                macos_permissions::macos::open_accessibility_settings();
+            OnboardingMessage::OpenInputMonitoringSettings => {
+                macos_permissions::macos::open_input_monitoring_settings();
                 return Task::none();
             }
             OnboardingMessage::RefreshPermissions => {
                 let screen_recording_granted =
                     macos_permissions::macos::check_screen_recording_permission();
-                let accessibility_granted =
-                    macos_permissions::macos::check_accessibility_permission();
+                let input_monitoring_granted =
+                    macos_permissions::macos::check_input_monitoring_permission();
 
                 if let Some(AppWindow::Onboarding(view)) = self.windows.get_mut(&window_id) {
-                    view.update_permissions(screen_recording_granted, accessibility_granted);
+                    view.update_permissions(screen_recording_granted, input_monitoring_granted);
                 }
                 return Task::none();
             }

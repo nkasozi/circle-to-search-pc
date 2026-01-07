@@ -34,6 +34,7 @@ pub mod macos {
         has_permission
     }
 
+    #[allow(dead_code)]
     pub fn check_accessibility_permission() -> bool {
         log::info!("{} Checking accessibility permission", LOG_TAG_PERMISSIONS);
 
@@ -56,10 +57,39 @@ pub mod macos {
         open_system_preferences("Screen Recording");
     }
 
+    #[allow(dead_code)]
     pub fn open_accessibility_settings() {
         log::info!("{} Opening accessibility settings", LOG_TAG_PERMISSIONS);
         check_accessibility_permission_internal(true);
         open_system_preferences("Accessibility");
+    }
+
+    pub fn check_input_monitoring_permission() -> bool {
+        log::info!(
+            "{} Checking input monitoring permission",
+            LOG_TAG_PERMISSIONS
+        );
+        let has_permission = check_accessibility_permission_internal(false);
+
+        if has_permission {
+            log::info!(
+                "{} Input monitoring permission granted",
+                LOG_TAG_PERMISSIONS
+            );
+        } else {
+            log::warn!(
+                "{} Input monitoring permission not granted",
+                LOG_TAG_PERMISSIONS
+            );
+        }
+
+        has_permission
+    }
+
+    pub fn open_input_monitoring_settings() {
+        log::info!("{} Opening input monitoring settings", LOG_TAG_PERMISSIONS);
+        check_accessibility_permission_internal(true);
+        open_system_preferences("Input Monitoring");
     }
 
     fn check_screen_recording_permission_internal() -> bool {
@@ -174,6 +204,9 @@ pub mod macos {
             "Accessibility" => {
                 "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
             }
+            "Input Monitoring" => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+            }
             _ => "x-apple.systempreferences:com.apple.preference.security",
         };
 
@@ -215,7 +248,13 @@ pub mod macos {
         true
     }
 
+    pub fn check_input_monitoring_permission() -> bool {
+        true
+    }
+
     pub fn open_screen_recording_settings() {}
 
     pub fn open_accessibility_settings() {}
+
+    pub fn open_input_monitoring_settings() {}
 }

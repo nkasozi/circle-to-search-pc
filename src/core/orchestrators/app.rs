@@ -35,19 +35,19 @@ fn check_all_permissions_granted() -> bool {
     #[cfg(target_os = "macos")]
     {
         use crate::adapters::macos_permissions::macos::{
-            check_accessibility_permission, check_screen_recording_permission,
+            check_input_monitoring_permission, check_screen_recording_permission,
         };
 
         let screen_recording_granted = check_screen_recording_permission();
-        let accessibility_granted = check_accessibility_permission();
+        let input_monitoring_granted = check_input_monitoring_permission();
 
         log::info!(
-            "[APP] Permission check: screen_recording={}, accessibility={}",
+            "[APP] Permission check: screen_recording={}, input_monitoring={}",
             screen_recording_granted,
-            accessibility_granted
+            input_monitoring_granted
         );
 
-        screen_recording_granted && accessibility_granted
+        screen_recording_granted && input_monitoring_granted
     }
 
     #[cfg(not(target_os = "macos"))]

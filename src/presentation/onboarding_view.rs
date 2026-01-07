@@ -7,7 +7,7 @@ use super::app_theme;
 pub enum OnboardingStep {
     Welcome,
     ScreenRecording,
-    Accessibility,
+    InputMonitoring,
     AutoStart,
     Complete,
 }
@@ -16,8 +16,8 @@ impl OnboardingStep {
     pub fn next(self) -> Self {
         match self {
             OnboardingStep::Welcome => OnboardingStep::ScreenRecording,
-            OnboardingStep::ScreenRecording => OnboardingStep::Accessibility,
-            OnboardingStep::Accessibility => OnboardingStep::AutoStart,
+            OnboardingStep::ScreenRecording => OnboardingStep::InputMonitoring,
+            OnboardingStep::InputMonitoring => OnboardingStep::AutoStart,
             OnboardingStep::AutoStart => OnboardingStep::Complete,
             OnboardingStep::Complete => OnboardingStep::Complete,
         }
@@ -27,7 +27,7 @@ impl OnboardingStep {
         match self {
             OnboardingStep::Welcome => 1,
             OnboardingStep::ScreenRecording => 2,
-            OnboardingStep::Accessibility => 3,
+            OnboardingStep::InputMonitoring => 3,
             OnboardingStep::AutoStart => 4,
             OnboardingStep::Complete => 5,
         }
@@ -43,7 +43,7 @@ pub enum OnboardingMessage {
     NextStep,
     BackToStart,
     OpenScreenRecordingSettings,
-    OpenAccessibilitySettings,
+    OpenInputMonitoringSettings,
     ToggleLaunchAtLogin(bool),
     FinishOnboarding,
     RefreshPermissions,
@@ -52,7 +52,7 @@ pub enum OnboardingMessage {
 pub struct OnboardingView {
     current_step: OnboardingStep,
     screen_recording_granted: bool,
-    accessibility_granted: bool,
+    input_monitoring_granted: bool,
     launch_at_login: bool,
     toast_message: Option<(String, bool)>,
 }
@@ -60,13 +60,13 @@ pub struct OnboardingView {
 impl OnboardingView {
     pub fn new(
         screen_recording_granted: bool,
-        accessibility_granted: bool,
+        input_monitoring_granted: bool,
         launch_at_login: bool,
     ) -> Self {
         Self {
             current_step: OnboardingStep::Welcome,
             screen_recording_granted,
-            accessibility_granted,
+            input_monitoring_granted,
             launch_at_login,
             toast_message: None,
         }
@@ -75,23 +75,23 @@ impl OnboardingView {
     pub fn update_permissions(
         &mut self,
         screen_recording_granted: bool,
-        accessibility_granted: bool,
+        input_monitoring_granted: bool,
     ) {
         let previous_screen = self.screen_recording_granted;
-        let previous_accessibility = self.accessibility_granted;
+        let previous_input_monitoring = self.input_monitoring_granted;
 
         self.screen_recording_granted = screen_recording_granted;
-        self.accessibility_granted = accessibility_granted;
+        self.input_monitoring_granted = input_monitoring_granted;
 
         let relevant_permission = match self.current_step {
             OnboardingStep::ScreenRecording => screen_recording_granted,
-            OnboardingStep::Accessibility => accessibility_granted,
+            OnboardingStep::InputMonitoring => input_monitoring_granted,
             _ => return,
         };
 
         let was_granted = match self.current_step {
             OnboardingStep::ScreenRecording => previous_screen,
-            OnboardingStep::Accessibility => previous_accessibility,
+            OnboardingStep::InputMonitoring => previous_input_monitoring,
             _ => return,
         };
 
@@ -132,7 +132,7 @@ impl OnboardingView {
             }
             OnboardingMessage::FinishOnboarding => true,
             OnboardingMessage::OpenScreenRecordingSettings
-            | OnboardingMessage::OpenAccessibilitySettings
+            | OnboardingMessage::OpenInputMonitoringSettings
             | OnboardingMessage::RefreshPermissions => false,
         }
     }
@@ -141,7 +141,7 @@ impl OnboardingView {
         let content = match self.current_step {
             OnboardingStep::Welcome => self.render_welcome_step(),
             OnboardingStep::ScreenRecording => self.render_screen_recording_step(),
-            OnboardingStep::Accessibility => self.render_accessibility_step(),
+            OnboardingStep::InputMonitoring => self.render_input_monitoring_step(),
             OnboardingStep::AutoStart => self.render_auto_start_step(),
             OnboardingStep::Complete => self.render_complete_step(),
         };
@@ -341,23 +341,23 @@ impl OnboardingView {
         .into()
     }
 
-    fn render_accessibility_step(&self) -> Element<'_, OnboardingMessage> {
-        let title = text("Accessibility Permission").size(24);
+    fn render_input_monitoring_step(&self) -> Element<'_, OnboardingMessage> {
+        let title = text("Input Monitoring Permission").size(24);
 
-        let status_icon = if self.accessibility_granted {
+        let status_icon = if self.input_monitoring_granted {
             text("✓ Permission Granted").size(18)
         } else {
             text("⚠ Permission Required").size(18)
         };
 
         let description = text(
-            "Circle to Search needs accessibility permission to detect the keyboard shortcut \
+            "Circle to Search needs Input Monitoring permission to detect the keyboard shortcut \
              (Alt+Shift+S) that triggers the screen capture.\n\n\
              Without this, you'll need to use the system tray menu to start a capture.",
         )
         .size(16);
 
-        let instructions = if !self.accessibility_granted {
+        let instructions = if !self.input_monitoring_granted {
             column![
                 text("To grant permission:").size(16),
                 text("1. Click the button below to open System Settings").size(14),
@@ -373,7 +373,7 @@ impl OnboardingView {
         let open_settings_button = button(text("Open System Settings").size(16))
             .padding([12, 24])
             .style(app_theme::primary_button_style)
-            .on_press(OnboardingMessage::OpenAccessibilitySettings);
+            .on_press(OnboardingMessage::OpenInputMonitoringSettings);
 
         let check_button = button(text("Check Permission").size(16))
             .padding([12, 24])
@@ -383,7 +383,7 @@ impl OnboardingView {
         let action_buttons =
             row![open_settings_button, text("   "), check_button].align_y(Alignment::Center);
 
-        let continue_button = if self.accessibility_granted {
+        let continue_button = if self.input_monitoring_granted {
             button(text("Continue").size(16))
                 .padding([12, 24])
                 .style(app_theme::primary_button_style)
@@ -469,10 +469,10 @@ impl OnboardingView {
             "✗ Screen Recording: Not enabled (limited functionality)"
         };
 
-        let accessibility_status = if self.accessibility_granted {
-            "✓ Accessibility: Enabled"
+        let input_monitoring_status = if self.input_monitoring_granted {
+            "✓ Input Monitoring: Enabled"
         } else {
-            "✗ Accessibility: Not enabled (use tray menu to capture)"
+            "✗ Input Monitoring: Not enabled (use tray menu to capture)"
         };
 
         let auto_start_status = if self.launch_at_login {
@@ -484,7 +484,7 @@ impl OnboardingView {
         let permissions_summary = column![
             text("Setup Summary:").size(16),
             text(screen_status).size(14),
-            text(accessibility_status).size(14),
+            text(input_monitoring_status).size(14),
             text(auto_start_status).size(14),
         ]
         .spacing(6);

@@ -4,9 +4,17 @@ set -e
 
 APP_NAME="Circle to Search"
 BUNDLE_NAME="Circle to Search.app"
+BUNDLE_ID="com.circle-to-search.app"
 EXECUTABLE_NAME="circle-to-search-pc"
 VERSION="0.1.0"
 
+echo "Resetting macOS permissions for fresh install..."
+tccutil reset ScreenCapture "$BUNDLE_ID" 2>/dev/null && echo "  Screen Recording reset for $BUNDLE_ID" || echo "  Screen Recording: no existing entry"
+tccutil reset Accessibility "$BUNDLE_ID" 2>/dev/null && echo "  Accessibility reset for $BUNDLE_ID" || echo "  Accessibility: no existing entry"
+tccutil reset ListenEvent "$BUNDLE_ID" 2>/dev/null && echo "  Input Monitoring reset for $BUNDLE_ID" || echo "  Input Monitoring: no existing entry"
+echo ""
+
+echo ""
 echo "Building release binary..."
 cargo build --release
 
@@ -37,3 +45,4 @@ echo "To install, copy the app bundle to /Applications:"
 echo "  cp -r \"target/release/${BUNDLE_NAME}\" /Applications/"
 echo ""
 echo "The app will run as a system tray application (no dock icon)."
+Í
