@@ -901,7 +901,7 @@ impl AppOrchestrator {
         .on_press(OrchestratorMessage::CaptureScreen);
 
         let hotkey_hint = text(format!(
-            "or press {} anywhere",
+            "Press {} anywhere\nor",
             &self.settings.capture_hotkey
         ))
         .size(13)
@@ -909,7 +909,7 @@ impl AppOrchestrator {
             color: Some(Color::from_rgba(0.5, 0.5, 0.5, 1.0)),
         });
 
-        let action_content = column![capture_btn, hotkey_hint]
+        let action_content = column![hotkey_hint, capture_btn]
             .spacing(12)
             .align_x(Alignment::Center);
 
