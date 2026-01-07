@@ -140,3 +140,54 @@ mod tests {
         }
     }
 }
+
+pub fn copy_text_to_clipboard(text: &str) -> Result<(), String> {
+    log::info!("[CLIPBOARD] Copying {} characters to clipboard", text.len());
+
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+
+        let result = Command::new("pbcopy")
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut child| {
+                if let Some(ref mut stdin) = child.stdin {
+                    stdin.write_all(text.as_bytes())?;
+                }
+                child.wait()
+            });
+
+        match result {
+            Ok(status) if status.success() => {
+                log::info!("[CLIPBOARD] Successfully copied text using pbcopy");
+                Ok(())
+            }
+            Ok(status) => {
+                let error_message = format!("pbcopy exited with status: {:?}", status.code());
+                log::error!("[CLIPBOARD] {}", error_message);
+                Err(error_message)
+            }
+            Err(error) => {
+                let error_message = format!("Failed to run pbcopy: {}", error);
+                log::error!("[CLIPBOARD] {}", error_message);
+                Err(error_message)
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        match arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_text(text)) {
+            Ok(()) => {
+                log::info!("[CLIPBOARD] Successfully copied text using arboard");
+                Ok(())
+            }
+            Err(error) => {
+                let error_message = format!("Failed to copy to clipboard: {}", error);
+                log::error!("[CLIPBOARD] {}", error_message);
+                Err(error_message)
+            }
+        }
+    }
+}

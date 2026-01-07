@@ -60,7 +60,6 @@ pub mod macos {
     #[allow(dead_code)]
     pub fn open_accessibility_settings() {
         log::info!("{} Opening accessibility settings", LOG_TAG_PERMISSIONS);
-        check_accessibility_permission_internal(true);
         open_system_preferences("Accessibility");
     }
 
@@ -69,7 +68,7 @@ pub mod macos {
             "{} Checking input monitoring permission",
             LOG_TAG_PERMISSIONS
         );
-        let has_permission = check_accessibility_permission_internal(false);
+        let has_permission = check_input_monitoring_permission_internal();
 
         if has_permission {
             log::info!(
@@ -88,13 +87,10 @@ pub mod macos {
 
     pub fn open_input_monitoring_settings() {
         log::info!("{} Opening input monitoring settings", LOG_TAG_PERMISSIONS);
-        check_accessibility_permission_internal(true);
         open_system_preferences("Input Monitoring");
     }
 
     fn check_screen_recording_permission_internal() -> bool {
-        use std::ptr;
-
         unsafe {
             let framework_path = std::ffi::CString::new(
                 "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics",
@@ -108,9 +104,36 @@ pub mod macos {
                     "{} Could not load CoreGraphics framework",
                     LOG_TAG_PERMISSIONS
                 );
-                return true;
+                return false;
             }
 
+            type CGPreflightScreenCaptureAccessFn = unsafe extern "C" fn() -> bool;
+
+            let func_name = std::ffi::CString::new("CGPreflightScreenCaptureAccess").unwrap();
+            let func_ptr = libc::dlsym(lib, func_name.as_ptr());
+
+            if func_ptr.is_null() {
+                libc::dlclose(lib);
+                log::warn!(
+                    "{} Could not find CGPreflightScreenCaptureAccess, falling back to stream check",
+                    LOG_TAG_PERMISSIONS
+                );
+                return check_screen_recording_via_stream(lib);
+            }
+
+            let preflight_fn: CGPreflightScreenCaptureAccessFn = std::mem::transmute(func_ptr);
+            let result = preflight_fn();
+
+            libc::dlclose(lib);
+
+            result
+        }
+    }
+
+    fn check_screen_recording_via_stream(lib: *mut libc::c_void) -> bool {
+        use std::ptr;
+
+        unsafe {
             type CreateStreamFn = unsafe extern "C" fn(
                 u32,
                 usize,
@@ -126,20 +149,62 @@ pub mod macos {
             let func_ptr = libc::dlsym(lib, func_name.as_ptr());
 
             if func_ptr.is_null() {
-                libc::dlclose(lib);
                 log::warn!(
                     "{} Could not find CGDisplayStreamCreateWithDispatchQueue",
                     LOG_TAG_PERMISSIONS
                 );
-                return true;
+                return false;
             }
 
             let func: CreateStreamFn = std::mem::transmute(func_ptr);
             let stream = func(0, 1, 1, 0, ptr::null(), ptr::null(), ptr::null());
 
+            !stream.is_null()
+        }
+    }
+
+    fn check_input_monitoring_permission_internal() -> bool {
+        unsafe {
+            let framework_path =
+                std::ffi::CString::new("/System/Library/Frameworks/IOKit.framework/IOKit").unwrap();
+
+            let lib = libc::dlopen(framework_path.as_ptr(), libc::RTLD_LAZY);
+
+            if lib.is_null() {
+                log::warn!("{} Could not load IOKit framework", LOG_TAG_PERMISSIONS);
+                return check_accessibility_permission_internal(false);
+            }
+
+            type IOHIDCheckAccessFn = unsafe extern "C" fn(u32) -> u32;
+
+            let func_name = std::ffi::CString::new("IOHIDCheckAccess").unwrap();
+            let func_ptr = libc::dlsym(lib, func_name.as_ptr());
+
+            if func_ptr.is_null() {
+                libc::dlclose(lib);
+                log::warn!(
+                    "{} Could not find IOHIDCheckAccess, falling back to accessibility check",
+                    LOG_TAG_PERMISSIONS
+                );
+                return check_accessibility_permission_internal(false);
+            }
+
+            let check_access_fn: IOHIDCheckAccessFn = std::mem::transmute(func_ptr);
+
+            let k_iohid_request_type_listen_event: u32 = 1;
+            let k_iohid_access_type_granted: u32 = 0;
+
+            let result = check_access_fn(k_iohid_request_type_listen_event);
+
+            log::debug!(
+                "{} IOHIDCheckAccess returned: {} (0=granted, 1=denied, 2=unknown)",
+                LOG_TAG_PERMISSIONS,
+                result
+            );
+
             libc::dlclose(lib);
 
-            !stream.is_null()
+            result == k_iohid_access_type_granted
         }
     }
 

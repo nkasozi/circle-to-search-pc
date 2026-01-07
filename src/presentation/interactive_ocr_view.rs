@@ -2,6 +2,7 @@ use iced::widget::{button, canvas, column, container, image, row, stack, text};
 use iced::{Alignment, Color, Element, Length, Point, Rectangle, Size};
 
 use crate::core::models::{CaptureBuffer, OcrResult, ThemeMode};
+use crate::infrastructure::utils::copy_text_to_clipboard;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SearchState {
@@ -168,14 +169,15 @@ impl InteractiveOcrView {
                 let selected_text = self.get_selected_text_with_layout();
                 if !selected_text.is_empty() {
                     log::info!("[INTERACTIVE_OCR] Copying text: {}", selected_text);
-                    if let Err(e) = arboard::Clipboard::new()
-                        .and_then(|mut clipboard| clipboard.set_text(&selected_text))
-                    {
-                        log::error!("[INTERACTIVE_OCR] Failed to copy to clipboard: {}", e);
-                        self.copy_confirmation = false;
-                    } else {
-                        log::info!("[INTERACTIVE_OCR] Text copied to clipboard");
-                        self.copy_confirmation = true;
+                    match copy_text_to_clipboard(&selected_text) {
+                        Ok(()) => {
+                            log::info!("[INTERACTIVE_OCR] Text copied to clipboard");
+                            self.copy_confirmation = true;
+                        }
+                        Err(error) => {
+                            log::error!("[INTERACTIVE_OCR] Failed to copy to clipboard: {}", error);
+                            self.copy_confirmation = false;
+                        }
                     }
                 }
             }

@@ -73,6 +73,7 @@ pub enum OrchestratorMessage {
     HideMainWindow,
     OpenOnboarding,
     OnboardingMsg(Id, OnboardingMessage),
+    EnableKeyboardListener,
 }
 
 impl std::fmt::Debug for OrchestratorMessage {
@@ -119,6 +120,7 @@ impl std::fmt::Debug for OrchestratorMessage {
             OrchestratorMessage::HideMainWindow => write!(f, "HideMainWindow"),
             OrchestratorMessage::OpenOnboarding => write!(f, "OpenOnboarding"),
             OrchestratorMessage::OnboardingMsg(id, _) => write!(f, "OnboardingMsg({:?})", id),
+            OrchestratorMessage::EnableKeyboardListener => write!(f, "EnableKeyboardListener"),
         }
     }
 }
@@ -283,6 +285,9 @@ impl AppOrchestrator {
             }
             OrchestratorMessage::OnboardingMsg(window_id, msg) => {
                 return self.handle_onboarding_message(window_id, msg);
+            }
+            OrchestratorMessage::EnableKeyboardListener => {
+                log::debug!("[ORCHESTRATOR] EnableKeyboardListener handled at app level");
             }
         }
 
@@ -1266,8 +1271,9 @@ impl AppOrchestrator {
 
         let close_task = window::close(window_id);
         let open_main_task = Task::done(OrchestratorMessage::OpenMainWindow);
+        let enable_keyboard_task = Task::done(OrchestratorMessage::EnableKeyboardListener);
 
-        Task::batch(vec![close_task, open_main_task])
+        Task::batch(vec![close_task, open_main_task, enable_keyboard_task])
     }
 }
 

@@ -45,4 +45,3 @@ echo "To install, copy the app bundle to /Applications:"
 echo "  cp -r \"target/release/${BUNDLE_NAME}\" /Applications/"
 echo ""
 echo "The app will run as a system tray application (no dock icon)."
-Í

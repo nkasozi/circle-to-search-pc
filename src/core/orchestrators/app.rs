@@ -29,6 +29,7 @@ impl OcrService for DummyOcrService {
 pub struct CircleApp {
     orchestrator: AppOrchestrator,
     _tray: Option<SystemTray>,
+    keyboard_listener_enabled: bool,
 }
 
 fn check_all_permissions_granted() -> bool {
@@ -114,6 +115,7 @@ impl CircleApp {
 
         let all_permissions_granted = check_all_permissions_granted();
         let needs_onboarding = !onboarding_complete || !all_permissions_granted;
+        let keyboard_listener_enabled = !needs_onboarding;
 
         if needs_onboarding {
             log::info!(
@@ -129,12 +131,18 @@ impl CircleApp {
             Self {
                 orchestrator,
                 _tray: tray,
+                keyboard_listener_enabled,
             },
             Task::batch(tasks),
         )
     }
 
     pub fn handle_update(&mut self, message: OrchestratorMessage) -> Task<OrchestratorMessage> {
+        if matches!(message, OrchestratorMessage::EnableKeyboardListener) {
+            log::info!("[APP] Enabling keyboard listener after onboarding");
+            self.keyboard_listener_enabled = true;
+            return Task::none();
+        }
         self.orchestrator.update(message)
     }
 
@@ -145,17 +153,7 @@ impl CircleApp {
     pub fn handle_subscription(&self) -> iced::Subscription<OrchestratorMessage> {
         use iced::window;
 
-        iced::Subscription::batch([
-            iced::Subscription::run(GlobalKeyboardListener::create_event_stream).map(|event| {
-                match event {
-                    GlobalKeyboardEvent::CaptureHotkeyPressed => {
-                        OrchestratorMessage::Keyboard(GlobalKeyboardEvent::CaptureHotkeyPressed)
-                    }
-                    GlobalKeyboardEvent::EscapePressed => {
-                        OrchestratorMessage::Keyboard(GlobalKeyboardEvent::EscapePressed)
-                    }
-                }
-            }),
+        let mut subscriptions = vec![
             iced::event::listen_with(|event, _status, id| {
                 if let iced::Event::Window(window::Event::Closed) = event {
                     return Some(OrchestratorMessage::WindowClosed(id));
@@ -175,6 +173,23 @@ impl CircleApp {
                     },
                 )
             }),
-        ])
+        ];
+
+        if self.keyboard_listener_enabled {
+            subscriptions.push(
+                iced::Subscription::run(GlobalKeyboardListener::create_event_stream).map(|event| {
+                    match event {
+                        GlobalKeyboardEvent::CaptureHotkeyPressed => {
+                            OrchestratorMessage::Keyboard(GlobalKeyboardEvent::CaptureHotkeyPressed)
+                        }
+                        GlobalKeyboardEvent::EscapePressed => {
+                            OrchestratorMessage::Keyboard(GlobalKeyboardEvent::EscapePressed)
+                        }
+                    }
+                }),
+            );
+        }
+
+        iced::Subscription::batch(subscriptions)
     }
 }
