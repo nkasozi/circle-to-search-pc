@@ -1,10 +1,13 @@
 use std::fs;
 use std::io::Write;
+use std::path::{Path, PathBuf};
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 
-pub fn ensure_single_instance() -> bool {
-    let lock_file_path = std::env::temp_dir().join("circle-to-search-pc.lock");
+pub fn get_default_lock_file_path() -> PathBuf {
+    std::env::temp_dir().join("circle-to-search-pc.lock")
+}
 
+pub fn ensure_single_instance_using_lock_file(lock_file_path: &Path) -> bool {
     if lock_file_path.exists() {
         if let Ok(pid_string) = fs::read_to_string(&lock_file_path) {
             if let Ok(pid) = pid_string.trim().parse::<u32>() {
@@ -49,36 +52,23 @@ mod tests {
 
     #[test]
     fn test_ensure_single_instance_creates_lock_file() {
-        let test_lock_path = std::env::temp_dir().join("test-circle-to-search-pc.lock");
+        let test_lock_path =
+            std::env::temp_dir().join(format!("test-lock-{}.lock", std::process::id()));
 
         if test_lock_path.exists() {
             fs::remove_file(&test_lock_path).ok();
         }
 
-        let original_lock_path = std::env::temp_dir().join("circle-to-search-pc.lock");
-        let backup_exists = original_lock_path.exists();
-        let backup_content = if backup_exists {
-            fs::read_to_string(&original_lock_path).ok()
-        } else {
-            None
-        };
-
-        let success = ensure_single_instance();
+        let success = ensure_single_instance_using_lock_file(&test_lock_path);
 
         assert!(success);
-        assert!(original_lock_path.exists());
+        assert!(test_lock_path.exists());
 
-        let lock_content = fs::read_to_string(&original_lock_path).unwrap();
+        let lock_content = fs::read_to_string(&test_lock_path).unwrap();
         let stored_pid: u32 = lock_content.trim().parse().unwrap();
         assert_eq!(stored_pid, std::process::id());
 
-        fs::remove_file(&original_lock_path).ok();
-
-        if backup_exists {
-            if let Some(content) = backup_content {
-                fs::write(&original_lock_path, content).ok();
-            }
-        }
+        fs::remove_file(&test_lock_path).ok();
     }
 
     #[test]
@@ -105,39 +95,28 @@ mod tests {
 
     #[test]
     fn test_ensure_single_instance_cleans_stale_lock() {
-        let test_lock_path = std::env::temp_dir().join("circle-to-search-pc.lock");
+        let test_lock_path =
+            std::env::temp_dir().join(format!("test-stale-lock-{}.lock", std::process::id()));
 
-        let backup_exists = test_lock_path.exists();
-        let backup_content = if backup_exists {
-            fs::read_to_string(&test_lock_path).ok()
-        } else {
-            None
-        };
+        if test_lock_path.exists() {
+            fs::remove_file(&test_lock_path).ok();
+        }
 
         let fake_pid: u32 = 999999;
         fs::write(&test_lock_path, fake_pid.to_string()).expect("Failed to write fake PID");
 
         std::thread::sleep(std::time::Duration::from_millis(50));
 
-        let success = ensure_single_instance();
+        let success = ensure_single_instance_using_lock_file(&test_lock_path);
 
         assert!(success);
+        assert!(test_lock_path.exists());
 
-        if test_lock_path.exists() {
-            let new_content = fs::read_to_string(&test_lock_path).unwrap_or_default();
-            if !new_content.trim().is_empty() {
-                let new_pid: u32 = new_content.trim().parse().unwrap();
-                assert_eq!(new_pid, std::process::id());
-            }
-        }
+        let new_content = fs::read_to_string(&test_lock_path).unwrap();
+        let new_pid: u32 = new_content.trim().parse().unwrap();
+        assert_eq!(new_pid, std::process::id());
 
         fs::remove_file(&test_lock_path).ok();
-
-        if backup_exists {
-            if let Some(content) = backup_content {
-                fs::write(&test_lock_path, content).ok();
-            }
-        }
     }
 }
 

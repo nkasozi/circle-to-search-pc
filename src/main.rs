@@ -14,7 +14,8 @@ fn main() -> iced::Result {
 
     log::info!("[MAIN] Starting Circle to Search application");
 
-    if !infrastructure::utils::ensure_single_instance() {
+    let lock_file_path = infrastructure::utils::get_default_lock_file_path();
+    if !infrastructure::utils::ensure_single_instance_using_lock_file(&lock_file_path) {
         log::error!("[MAIN] Failed to ensure single instance");
     }
 
