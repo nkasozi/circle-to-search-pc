@@ -40,6 +40,8 @@ pub struct UserSettings {
     pub launch_at_login: bool,
     #[serde(default)]
     pub install_id: Option<String>,
+    #[serde(default = "UserSettings::default_screenshot_save_location")]
+    pub screenshot_save_location: String,
 }
 
 impl Default for UserSettings {
@@ -52,11 +54,19 @@ impl Default for UserSettings {
             onboarding_complete: false,
             launch_at_login: false,
             install_id: None,
+            screenshot_save_location: Self::default_screenshot_save_location(),
         }
     }
 }
 
 impl UserSettings {
+    pub fn default_screenshot_save_location() -> String {
+        dirs::download_dir()
+            .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
+            .to_string_lossy()
+            .to_string()
+    }
+
     pub fn load() -> anyhow::Result<Self> {
         let current_install_id = Self::get_or_create_install_id();
         let settings_path = Self::get_settings_file_path()?;
@@ -260,6 +270,7 @@ mod tests {
             onboarding_complete: true,
             launch_at_login: true,
             install_id: Some("test-id".to_string()),
+            screenshot_save_location: "/tmp/screenshots".to_string(),
         };
 
         let serialized = serde_json::to_string(&settings).unwrap();
@@ -304,6 +315,7 @@ mod tests {
             onboarding_complete: true,
             launch_at_login: true,
             install_id: Some("test-roundtrip-id".to_string()),
+            screenshot_save_location: "/tmp/test-screenshots".to_string(),
         };
 
         let test_file = temp_dir.join("test_settings.json");

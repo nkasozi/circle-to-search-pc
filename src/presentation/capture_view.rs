@@ -190,7 +190,7 @@ impl CaptureView {
                 .on_press(CaptureViewMessage::SetDrawMode(DrawMode::Freeform));
 
             let toolbar =
-                container(row![rect_btn, freeform_btn].spacing(8).padding(8)).style(|_theme| {
+                container(row![rect_btn, freeform_btn,].spacing(8).padding(8)).style(|_theme| {
                     container::Style {
                         background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.85))),
                         border: Border {

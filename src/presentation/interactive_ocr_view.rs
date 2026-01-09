@@ -1,4 +1,4 @@
-use iced::widget::{button, canvas, column, container, image, row, stack, text};
+use iced::widget::{button, canvas, container, image, row, stack, text, tooltip};
 use iced::{Alignment, Border, Color, Element, Length, Point, Rectangle, Shadow, Size, Vector};
 
 use crate::core::models::{CaptureBuffer, OcrResult, ThemeMode};
@@ -20,11 +20,25 @@ pub enum CopyState {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum SaveState {
+    Idle,
+    Success(String),
+    Failed(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct CharPosition {
     pub word_index: usize,
     pub char_index: usize,
     pub bounds: Rectangle,
     pub character: char,
+}
+
+#[derive(Debug, Clone)]
+pub struct DrawStroke {
+    pub points: Vec<Point>,
+    pub color: Color,
+    pub width: f32,
 }
 
 pub struct InteractiveOcrView {
@@ -40,8 +54,15 @@ pub struct InteractiveOcrView {
     search_state: SearchState,
     theme_mode: ThemeMode,
     copy_state: CopyState,
+    save_state: SaveState,
+    draw_strokes: Vec<DrawStroke>,
+    current_stroke_points: Vec<Point>,
+    is_drawing: bool,
+    draw_color: Color,
+    draw_width: f32,
+    draw_mode_enabled: bool,
+    show_help_hint: bool,
 }
-
 #[derive(Debug, Clone)]
 pub enum InteractiveOcrMessage {
     Close,
@@ -55,6 +76,20 @@ pub enum InteractiveOcrMessage {
     SearchFailed(String),
     HideToast,
     SelectAll,
+    DeselectAll,
+    DismissHelpHint,
+    StartDrawing(Point),
+    UpdateDrawing(Point),
+    EndDrawing,
+    CopyImageToClipboard,
+    SaveImageToFile,
+    Recrop,
+    ToggleDrawMode,
+    SetDrawColor(Color),
+    ClearDrawings,
+    SaveSuccess(String),
+    SaveFailed(String),
+    HideSaveToast,
 }
 
 impl InteractiveOcrView {
@@ -78,11 +113,27 @@ impl InteractiveOcrView {
             search_state: SearchState::Idle,
             theme_mode,
             copy_state: CopyState::Idle,
+            save_state: SaveState::Idle,
+            draw_strokes: Vec::new(),
+            current_stroke_points: Vec::new(),
+            is_drawing: false,
+            draw_color: Color::from_rgb(1.0, 0.0, 0.0),
+            draw_width: 3.0,
+            draw_mode_enabled: false,
+            show_help_hint: false,
         }
     }
 
     pub fn get_capture_buffer(&self) -> &CaptureBuffer {
         &self.capture_buffer
+    }
+
+    pub fn get_draw_strokes(&self) -> Vec<DrawStroke> {
+        self.draw_strokes.clone()
+    }
+
+    pub fn set_draw_strokes(&mut self, strokes: Vec<DrawStroke>) {
+        self.draw_strokes = strokes;
     }
 
     pub fn set_ocr_result(&mut self, result: OcrResult) {
@@ -97,6 +148,10 @@ impl InteractiveOcrView {
             self.char_positions.len()
         );
         self.ocr_result = Some(result);
+
+        if !self.char_positions.is_empty() {
+            self.show_help_hint = true;
+        }
     }
 
     fn calculate_char_positions(result: &OcrResult) -> Vec<CharPosition> {
@@ -140,6 +195,7 @@ impl InteractiveOcrView {
                     );
                     self.drag_start = Some(char_idx);
                     self.is_selecting = true;
+                    self.show_help_hint = false;
                 } else {
                     log::debug!(
                         "[INTERACTIVE_OCR] Ending current drag session, keeping selections"
@@ -217,6 +273,68 @@ impl InteractiveOcrView {
                     self.char_positions.len()
                 );
                 self.selected_chars = (0..self.char_positions.len()).collect();
+                self.show_help_hint = false;
+            }
+            InteractiveOcrMessage::DeselectAll => {
+                log::info!("[INTERACTIVE_OCR] Deselecting all characters");
+                self.selected_chars.clear();
+                self.is_selecting = false;
+                self.drag_start = None;
+            }
+            InteractiveOcrMessage::DismissHelpHint => {
+                self.show_help_hint = false;
+            }
+            InteractiveOcrMessage::StartDrawing(point) => {
+                self.current_stroke_points.clear();
+                self.current_stroke_points.push(point);
+                self.is_drawing = true;
+            }
+            InteractiveOcrMessage::UpdateDrawing(point) => {
+                if self.is_drawing {
+                    self.current_stroke_points.push(point);
+                }
+            }
+            InteractiveOcrMessage::EndDrawing => {
+                if self.is_drawing && !self.current_stroke_points.is_empty() {
+                    self.draw_strokes.push(DrawStroke {
+                        points: self.current_stroke_points.clone(),
+                        color: self.draw_color,
+                        width: self.draw_width,
+                    });
+                    self.current_stroke_points.clear();
+                    self.is_drawing = false;
+                }
+            }
+            InteractiveOcrMessage::CopyImageToClipboard
+            | InteractiveOcrMessage::SaveImageToFile
+            | InteractiveOcrMessage::Recrop => {}
+            InteractiveOcrMessage::ToggleDrawMode => {
+                self.draw_mode_enabled = !self.draw_mode_enabled;
+                log::info!(
+                    "[INTERACTIVE_OCR] Draw mode {}",
+                    if self.draw_mode_enabled {
+                        "enabled"
+                    } else {
+                        "disabled"
+                    }
+                );
+            }
+            InteractiveOcrMessage::SetDrawColor(color) => {
+                self.draw_color = color;
+                log::debug!("[INTERACTIVE_OCR] Draw color changed");
+            }
+            InteractiveOcrMessage::ClearDrawings => {
+                self.draw_strokes.clear();
+                log::info!("[INTERACTIVE_OCR] Cleared all drawings");
+            }
+            InteractiveOcrMessage::SaveSuccess(path) => {
+                self.save_state = SaveState::Success(path);
+            }
+            InteractiveOcrMessage::SaveFailed(error) => {
+                self.save_state = SaveState::Failed(error);
+            }
+            InteractiveOcrMessage::HideSaveToast => {
+                self.save_state = SaveState::Idle;
             }
         }
     }
@@ -294,24 +412,6 @@ impl InteractiveOcrView {
     }
 
     pub fn render_ui(&self) -> Element<'_, InteractiveOcrMessage> {
-        let status_text = if let Some(ref result) = self.ocr_result {
-            if self.selected_chars.is_empty() {
-                format!(
-                    "Detected {} words - Drag to select characters",
-                    result.text_blocks.len()
-                )
-            } else {
-                format!("Selected {} characters", self.selected_chars.len())
-            }
-        } else {
-            "Processing OCR...".to_string()
-        };
-
-        let title = text(status_text)
-            .size(18)
-            .width(Length::Fill)
-            .align_x(Alignment::Center);
-
         let image_with_overlay = if let Some(ref ocr_result) = self.ocr_result {
             self.render_image_with_overlay(ocr_result)
         } else {
@@ -321,175 +421,47 @@ impl InteractiveOcrView {
                 .into()
         };
 
-        let image_panel = container(image_with_overlay)
-            .padding(8)
+        let image_layer = container(image_with_overlay)
             .width(Length::Fill)
-            .height(Length::Fill)
-            .style(|_theme| iced::widget::container::Style {
-                background: Some(iced::Background::Color(Color::from_rgba(
-                    0.15, 0.15, 0.15, 1.0,
-                ))),
-                border: Border {
-                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
-                    width: 1.0,
-                    radius: 12.0.into(),
-                },
-                shadow: Shadow {
-                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.2),
-                    offset: Vector::new(0.0, 2.0),
-                    blur_radius: 8.0,
-                },
-                text_color: None,
-                snap: false,
-            });
+            .height(Length::Fill);
 
-        let copy_notification_element: Option<Element<'_, InteractiveOcrMessage>> =
-            match self.copy_state {
-                CopyState::Success => {
-                    let content = row![
-                        text("✓").size(20).style(|_theme: &iced::Theme| {
-                            iced::widget::text::Style {
-                                color: Some(Color::from_rgb(0.2, 0.8, 0.4)),
-                            }
-                        }),
-                        text(" Text copied to clipboard").size(18)
-                    ]
-                    .spacing(4)
-                    .align_y(Alignment::Center);
+        let mut layers: Vec<Element<'_, InteractiveOcrMessage>> = vec![image_layer.into()];
 
-                    Some(
-                        container(content)
-                            .padding([12, 20])
-                            .width(Length::Fill)
-                            .align_x(Alignment::Center)
-                            .style(|_theme| iced::widget::container::Style {
-                                background: Some(iced::Background::Color(Color::from_rgba(
-                                    0.2, 0.2, 0.2, 0.3,
-                                ))),
-                                border: Border {
-                                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
-                                    width: 1.0,
-                                    radius: 12.0.into(),
-                                },
-                                ..Default::default()
-                            })
-                            .into(),
-                    )
-                }
-                CopyState::Failed => {
-                    let content = row![
-                        text("✗").size(20).style(|_theme: &iced::Theme| {
-                            iced::widget::text::Style {
-                                color: Some(Color::from_rgb(0.9, 0.3, 0.3)),
-                            }
-                        }),
-                        text(" Failed to copy text").size(18)
-                    ]
-                    .spacing(4)
-                    .align_y(Alignment::Center);
-
-                    Some(
-                        container(content)
-                            .padding([12, 20])
-                            .width(Length::Fill)
-                            .align_x(Alignment::Center)
-                            .style(|_theme| iced::widget::container::Style {
-                                background: Some(iced::Background::Color(Color::from_rgba(
-                                    0.2, 0.2, 0.2, 0.3,
-                                ))),
-                                border: Border {
-                                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
-                                    width: 1.0,
-                                    radius: 12.0.into(),
-                                },
-                                ..Default::default()
-                            })
-                            .into(),
-                    )
-                }
-                CopyState::Idle => None,
-            };
-
-        let instructions_text = if self.selected_chars.is_empty() {
-            "Click on first character, then last character to select text. Press Ctrl+A to select all"
+        let status_text = if self.draw_mode_enabled {
+            "🖊️ Draw Mode ON - Click and drag to draw".to_string()
+        } else if let Some(ref result) = self.ocr_result {
+            if self.selected_chars.is_empty() {
+                format!(
+                    "Detected {} words - Click to select text",
+                    result.text_blocks.len()
+                )
+            } else {
+                format!("Selected {} characters", self.selected_chars.len())
+            }
         } else {
-            "Click on another character to extend selection or click Copy to copy selected text"
+            "Processing OCR...".to_string()
         };
 
-        let instructions_banner =
+        let status_banner =
             container(
-                text(instructions_text)
+                text(status_text)
                     .size(14)
                     .style(|_theme| iced::widget::text::Style {
                         color: Some(Color::WHITE),
                     }),
             )
-            .padding([12, 20])
-            .width(Length::Fill)
-            .align_x(Alignment::Center)
+            .padding([8, 16])
             .style(|_theme| iced::widget::container::Style {
                 background: Some(iced::Background::Color(Color::from_rgba(
-                    0.2, 0.2, 0.2, 0.6,
+                    0.1, 0.1, 0.1, 0.8,
                 ))),
                 border: Border {
-                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
+                    color: Color::from_rgba(0.3, 0.6, 1.0, 0.6),
                     width: 1.0,
-                    radius: 10.0.into(),
-                },
-                ..Default::default()
-            });
-
-        let mut button_row = row![].spacing(12).align_y(Alignment::Center);
-
-        if !self.selected_chars.is_empty() {
-            let copy_btn = button(text("📋 Copy"))
-                .padding([14, 24])
-                .style(|theme, status| super::app_theme::purple_button_style(theme, status))
-                .on_press(InteractiveOcrMessage::CopySelected);
-
-            button_row = button_row.push(copy_btn);
-        }
-
-        let (search_button_text, is_searching) = match &self.search_state {
-            SearchState::Idle => ("🔍 Search image with Google", false),
-            SearchState::UploadingImage => ("📤 Uploading image...", true),
-            SearchState::Completed => ("✅ Search completed", true),
-            SearchState::Failed(err) => {
-                log::debug!("[INTERACTIVE_OCR] Search failed with: {}", err);
-                ("❌ Search failed", true)
-            }
-        };
-
-        let mut search_btn = button(text(search_button_text))
-            .padding([14, 24])
-            .style(|theme, status| super::app_theme::primary_button_style(theme, status));
-
-        if !is_searching {
-            search_btn = search_btn.on_press(InteractiveOcrMessage::SearchSelected);
-        }
-
-        let close_btn = button(text("✖ Close (Esc)"))
-            .padding([14, 24])
-            .style(|theme, status| super::app_theme::danger_button_style(theme, status))
-            .on_press(InteractiveOcrMessage::Close);
-
-        button_row = button_row.push(search_btn).push(close_btn);
-
-        let buttons_panel = container(button_row)
-            .padding([16, 20])
-            .width(Length::Fill)
-            .align_x(Alignment::Center)
-            .style(|_theme| iced::widget::container::Style {
-                background: Some(iced::Background::Color(Color::from_rgba(
-                    0.2, 0.2, 0.2, 0.3,
-                ))),
-                border: Border {
-                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
-                    width: 1.0,
-                    radius: 12.0.into(),
+                    radius: 8.0.into(),
                 },
                 shadow: Shadow {
-                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.2),
+                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.4),
                     offset: Vector::new(0.0, 2.0),
                     blur_radius: 8.0,
                 },
@@ -497,33 +469,605 @@ impl InteractiveOcrView {
                 snap: false,
             });
 
-        let mut content_column = column![title, image_panel]
-            .spacing(12)
-            .padding(16)
+        let status_positioned = container(status_banner)
             .width(Length::Fill)
-            .height(Length::Fill)
-            .align_x(Alignment::Center);
+            .padding(iced::Padding {
+                top: 16.0,
+                right: 16.0,
+                bottom: 0.0,
+                left: 0.0,
+            })
+            .align_x(Alignment::End);
 
-        if let Some(notification) = copy_notification_element {
-            content_column = content_column.push(notification);
+        layers.push(status_positioned.into());
+
+        let notification_element: Option<Element<'_, InteractiveOcrMessage>> =
+            match &self.copy_state {
+                CopyState::Success => {
+                    Some(self.build_toast("✓ Text copied!", Color::from_rgb(0.2, 0.8, 0.4)))
+                }
+                CopyState::Failed => {
+                    Some(self.build_toast("✗ Copy failed", Color::from_rgb(0.9, 0.3, 0.3)))
+                }
+                CopyState::Idle => None,
+            };
+
+        if let Some(toast) = notification_element {
+            let toast_positioned = container(toast)
+                .width(Length::Fill)
+                .padding(iced::Padding {
+                    top: 60.0,
+                    right: 0.0,
+                    bottom: 0.0,
+                    left: 0.0,
+                })
+                .align_x(Alignment::Center);
+            layers.push(toast_positioned.into());
         }
 
-        content_column = content_column.push(instructions_banner).push(buttons_panel);
+        match &self.save_state {
+            SaveState::Success(path) => {
+                let message = format!("✓ Saved to {}", path);
+                let toast = Self::build_save_toast(message, Color::from_rgb(0.2, 0.8, 0.4));
+                let toast_positioned = container(toast)
+                    .width(Length::Fill)
+                    .padding(iced::Padding {
+                        top: 100.0,
+                        right: 0.0,
+                        bottom: 0.0,
+                        left: 0.0,
+                    })
+                    .align_x(Alignment::Center);
+                layers.push(toast_positioned.into());
+            }
+            SaveState::Failed(err) => {
+                let message = format!("✗ Save failed: {}", err);
+                let toast = Self::build_save_toast(message, Color::from_rgb(0.9, 0.3, 0.3));
+                let toast_positioned = container(toast)
+                    .width(Length::Fill)
+                    .padding(iced::Padding {
+                        top: 100.0,
+                        right: 0.0,
+                        bottom: 0.0,
+                        left: 0.0,
+                    })
+                    .align_x(Alignment::Center);
+                layers.push(toast_positioned.into());
+            }
+            SaveState::Idle => {}
+        };
 
-        let theme = super::app_theme::get_theme(&self.theme_mode);
+        if self.show_help_hint && !self.char_positions.is_empty() {
+            let help_hint = self.build_help_hint();
+            let hint_positioned = container(help_hint)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .padding(iced::Padding {
+                    top: 0.0,
+                    right: 0.0,
+                    bottom: 80.0,
+                    left: 0.0,
+                })
+                .align_x(Alignment::Center)
+                .align_y(Alignment::End);
+            layers.push(hint_positioned.into());
+        }
 
-        container(content_column)
+        let mut draw_row = row![].spacing(6).align_y(Alignment::Center);
+
+        let draw_toggle_text = if self.draw_mode_enabled {
+            "🖊️"
+        } else {
+            "🖊️"
+        };
+        let draw_toggle = button(text(draw_toggle_text).size(16))
+            .padding([8, 12])
+            .style(move |_theme: &iced::Theme, status| {
+                self.floating_btn_style(status, self.draw_mode_enabled)
+            })
+            .on_press(InteractiveOcrMessage::ToggleDrawMode);
+        let draw_tooltip_text = if self.draw_mode_enabled {
+            "Disable Draw Mode"
+        } else {
+            "Enable Draw Mode"
+        };
+        draw_row = draw_row.push(
+            tooltip(draw_toggle, draw_tooltip_text, tooltip::Position::Bottom)
+                .style(Self::tooltip_style),
+        );
+
+        if self.draw_mode_enabled {
+            let colors = [
+                (Color::from_rgb(1.0, 0.2, 0.2), ""),
+                (Color::from_rgb(0.2, 0.6, 1.0), ""),
+                (Color::from_rgb(0.2, 0.8, 0.2), ""),
+                (Color::from_rgb(1.0, 0.85, 0.0), ""),
+            ];
+
+            for (color, _) in colors {
+                let is_selected = (self.draw_color.r - color.r).abs() < 0.1
+                    && (self.draw_color.g - color.g).abs() < 0.1
+                    && (self.draw_color.b - color.b).abs() < 0.1;
+                let color_btn = button(text("●").size(18).style(move |_theme: &iced::Theme| {
+                    iced::widget::text::Style { color: Some(color) }
+                }))
+                .padding([6, 10])
+                .style(move |_theme: &iced::Theme, status| {
+                    self.color_btn_style(status, is_selected)
+                })
+                .on_press(InteractiveOcrMessage::SetDrawColor(color));
+                draw_row = draw_row.push(color_btn);
+            }
+
+            let clear_btn = button(text("🗑").size(14))
+                .padding([8, 10])
+                .style(|_theme: &iced::Theme, status| {
+                    let bg = match status {
+                        button::Status::Hovered => Color::from_rgba(0.8, 0.2, 0.2, 0.9),
+                        button::Status::Pressed => Color::from_rgba(0.6, 0.1, 0.1, 0.9),
+                        _ => Color::from_rgba(0.15, 0.15, 0.15, 0.85),
+                    };
+                    button::Style {
+                        background: Some(iced::Background::Color(bg)),
+                        text_color: Color::WHITE,
+                        border: Border {
+                            color: Color::from_rgba(0.5, 0.5, 0.5, 0.4),
+                            width: 1.0,
+                            radius: 6.0.into(),
+                        },
+                        shadow: Shadow::default(),
+                        snap: false,
+                    }
+                })
+                .on_press(InteractiveOcrMessage::ClearDrawings);
+            draw_row = draw_row.push(
+                tooltip(clear_btn, "Clear Drawings", tooltip::Position::Bottom)
+                    .style(Self::tooltip_style),
+            );
+        }
+
+        let draw_toolbar =
+            container(draw_row)
+                .padding([6, 10])
+                .style(|_theme| iced::widget::container::Style {
+                    background: Some(iced::Background::Color(Color::from_rgba(
+                        0.1, 0.1, 0.1, 0.85,
+                    ))),
+                    border: Border {
+                        color: Color::from_rgba(0.4, 0.4, 0.4, 0.5),
+                        width: 1.0,
+                        radius: 8.0.into(),
+                    },
+                    shadow: Shadow {
+                        color: Color::from_rgba(0.0, 0.0, 0.0, 0.4),
+                        offset: Vector::new(0.0, 2.0),
+                        blur_radius: 8.0,
+                    },
+                    text_color: None,
+                    snap: false,
+                });
+
+        let draw_toolbar_positioned = container(draw_toolbar)
             .width(Length::Fill)
-            .height(Length::Fill)
-            .style(move |_theme| {
-                let palette = theme.palette();
-                iced::widget::container::Style {
-                    background: Some(iced::Background::Color(palette.background)),
-                    text_color: Some(palette.text),
-                    ..Default::default()
+            .padding(iced::Padding {
+                top: 16.0,
+                right: 0.0,
+                bottom: 0.0,
+                left: 16.0,
+            })
+            .align_x(Alignment::Start);
+
+        layers.push(draw_toolbar_positioned.into());
+
+        let mut action_row = row![].spacing(6).align_y(Alignment::Center);
+
+        if !self.selected_chars.is_empty() {
+            let copy_text_btn = button(text("📋 Copy Text").size(13))
+                .padding([8, 14])
+                .style(|_theme: &iced::Theme, status| {
+                    let bg = match status {
+                        button::Status::Hovered => Color::from_rgba(0.5, 0.3, 0.8, 0.95),
+                        button::Status::Pressed => Color::from_rgba(0.4, 0.2, 0.7, 0.95),
+                        _ => Color::from_rgba(0.4, 0.2, 0.6, 0.9),
+                    };
+                    button::Style {
+                        background: Some(iced::Background::Color(bg)),
+                        text_color: Color::WHITE,
+                        border: Border {
+                            color: Color::from_rgba(0.6, 0.4, 0.9, 0.6),
+                            width: 1.0,
+                            radius: 6.0.into(),
+                        },
+                        shadow: Shadow::default(),
+                        snap: false,
+                    }
+                })
+                .on_press(InteractiveOcrMessage::CopySelected);
+            action_row = action_row.push(
+                tooltip(copy_text_btn, "Copy Selected Text", tooltip::Position::Top)
+                    .style(Self::tooltip_style),
+            );
+        }
+
+        let (search_text, is_searching) = match &self.search_state {
+            SearchState::Idle => ("🔍 Search", false),
+            SearchState::UploadingImage => ("📤...", true),
+            SearchState::Completed => ("✅", true),
+            SearchState::Failed(_) => ("❌", true),
+        };
+
+        let mut search_btn = button(text(search_text).size(13)).padding([8, 14]).style(
+            |_theme: &iced::Theme, status| {
+                let bg = match status {
+                    button::Status::Hovered => Color::from_rgba(0.2, 0.5, 0.9, 0.95),
+                    button::Status::Pressed => Color::from_rgba(0.1, 0.4, 0.8, 0.95),
+                    _ => Color::from_rgba(0.15, 0.15, 0.15, 0.85),
+                };
+                button::Style {
+                    background: Some(iced::Background::Color(bg)),
+                    text_color: Color::WHITE,
+                    border: Border {
+                        color: Color::from_rgba(0.3, 0.6, 1.0, 0.5),
+                        width: 1.0,
+                        radius: 6.0.into(),
+                    },
+                    shadow: Shadow::default(),
+                    snap: false,
+                }
+            },
+        );
+        if !is_searching {
+            search_btn = search_btn.on_press(InteractiveOcrMessage::SearchSelected);
+        }
+        action_row = action_row.push(
+            tooltip(search_btn, "Search Image on Google", tooltip::Position::Top)
+                .style(Self::tooltip_style),
+        );
+
+        let copy_img_btn = button(text("📷").size(14))
+            .padding([8, 12])
+            .style(|_theme: &iced::Theme, status| {
+                let bg = match status {
+                    button::Status::Hovered => Color::from_rgba(0.3, 0.3, 0.3, 0.95),
+                    button::Status::Pressed => Color::from_rgba(0.2, 0.2, 0.2, 0.95),
+                    _ => Color::from_rgba(0.15, 0.15, 0.15, 0.85),
+                };
+                button::Style {
+                    background: Some(iced::Background::Color(bg)),
+                    text_color: Color::WHITE,
+                    border: Border {
+                        color: Color::from_rgba(0.5, 0.5, 0.5, 0.4),
+                        width: 1.0,
+                        radius: 6.0.into(),
+                    },
+                    shadow: Shadow::default(),
+                    snap: false,
                 }
             })
+            .on_press(InteractiveOcrMessage::CopyImageToClipboard);
+        action_row = action_row.push(
+            tooltip(
+                copy_img_btn,
+                "Copy Image to Clipboard",
+                tooltip::Position::Top,
+            )
+            .style(Self::tooltip_style),
+        );
+
+        let save_btn = button(text("💾").size(14))
+            .padding([8, 12])
+            .style(|_theme: &iced::Theme, status| {
+                let bg = match status {
+                    button::Status::Hovered => Color::from_rgba(0.2, 0.6, 0.3, 0.95),
+                    button::Status::Pressed => Color::from_rgba(0.1, 0.5, 0.2, 0.95),
+                    _ => Color::from_rgba(0.15, 0.15, 0.15, 0.85),
+                };
+                button::Style {
+                    background: Some(iced::Background::Color(bg)),
+                    text_color: Color::WHITE,
+                    border: Border {
+                        color: Color::from_rgba(0.3, 0.7, 0.4, 0.5),
+                        width: 1.0,
+                        radius: 6.0.into(),
+                    },
+                    shadow: Shadow::default(),
+                    snap: false,
+                }
+            })
+            .on_press(InteractiveOcrMessage::SaveImageToFile);
+        action_row = action_row.push(
+            tooltip(save_btn, "Save Image to File", tooltip::Position::Top)
+                .style(Self::tooltip_style),
+        );
+
+        let recrop_btn = button(text("🔄").size(14))
+            .padding([8, 12])
+            .style(|_theme: &iced::Theme, status| {
+                let bg = match status {
+                    button::Status::Hovered => Color::from_rgba(0.4, 0.4, 0.5, 0.95),
+                    button::Status::Pressed => Color::from_rgba(0.3, 0.3, 0.4, 0.95),
+                    _ => Color::from_rgba(0.15, 0.15, 0.15, 0.85),
+                };
+                button::Style {
+                    background: Some(iced::Background::Color(bg)),
+                    text_color: Color::WHITE,
+                    border: Border {
+                        color: Color::from_rgba(0.5, 0.5, 0.6, 0.5),
+                        width: 1.0,
+                        radius: 6.0.into(),
+                    },
+                    shadow: Shadow::default(),
+                    snap: false,
+                }
+            })
+            .on_press(InteractiveOcrMessage::Recrop);
+        action_row = action_row.push(
+            tooltip(recrop_btn, "Recrop Selection", tooltip::Position::Top)
+                .style(Self::tooltip_style),
+        );
+
+        let close_btn = button(text("✖").size(14))
+            .padding([8, 12])
+            .style(|_theme: &iced::Theme, status| {
+                let bg = match status {
+                    button::Status::Hovered => Color::from_rgba(0.8, 0.2, 0.2, 0.95),
+                    button::Status::Pressed => Color::from_rgba(0.6, 0.1, 0.1, 0.95),
+                    _ => Color::from_rgba(0.15, 0.15, 0.15, 0.85),
+                };
+                button::Style {
+                    background: Some(iced::Background::Color(bg)),
+                    text_color: Color::WHITE,
+                    border: Border {
+                        color: Color::from_rgba(0.7, 0.3, 0.3, 0.5),
+                        width: 1.0,
+                        radius: 6.0.into(),
+                    },
+                    shadow: Shadow::default(),
+                    snap: false,
+                }
+            })
+            .on_press(InteractiveOcrMessage::Close);
+        action_row = action_row
+            .push(tooltip(close_btn, "Close", tooltip::Position::Top).style(Self::tooltip_style));
+
+        let action_toolbar =
+            container(action_row)
+                .padding([6, 10])
+                .style(|_theme| iced::widget::container::Style {
+                    background: Some(iced::Background::Color(Color::from_rgba(
+                        0.1, 0.1, 0.1, 0.85,
+                    ))),
+                    border: Border {
+                        color: Color::from_rgba(0.4, 0.4, 0.4, 0.5),
+                        width: 1.0,
+                        radius: 8.0.into(),
+                    },
+                    shadow: Shadow {
+                        color: Color::from_rgba(0.0, 0.0, 0.0, 0.4),
+                        offset: Vector::new(0.0, 2.0),
+                        blur_radius: 8.0,
+                    },
+                    text_color: None,
+                    snap: false,
+                });
+
+        let action_toolbar_positioned = container(action_toolbar)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .padding(iced::Padding {
+                top: 0.0,
+                right: 0.0,
+                bottom: 16.0,
+                left: 0.0,
+            })
+            .align_x(Alignment::Center)
+            .align_y(Alignment::End);
+
+        layers.push(action_toolbar_positioned.into());
+
+        container(stack(layers))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(|_theme| iced::widget::container::Style {
+                background: Some(iced::Background::Color(Color::from_rgb(0.08, 0.08, 0.08))),
+                ..Default::default()
+            })
             .into()
+    }
+
+    fn build_toast<'a>(
+        &self,
+        message: &'a str,
+        color: Color,
+    ) -> Element<'a, InteractiveOcrMessage> {
+        container(
+            text(message)
+                .size(14)
+                .style(move |_theme: &iced::Theme| iced::widget::text::Style {
+                    color: Some(color),
+                }),
+        )
+        .padding([8, 16])
+        .style(|_theme| iced::widget::container::Style {
+            background: Some(iced::Background::Color(Color::from_rgba(
+                0.1, 0.1, 0.1, 0.9,
+            ))),
+            border: Border {
+                color: Color::from_rgba(0.4, 0.4, 0.4, 0.5),
+                width: 1.0,
+                radius: 8.0.into(),
+            },
+            shadow: Shadow {
+                color: Color::from_rgba(0.0, 0.0, 0.0, 0.3),
+                offset: Vector::new(0.0, 2.0),
+                blur_radius: 6.0,
+            },
+            text_color: None,
+            snap: false,
+        })
+        .into()
+    }
+
+    fn build_save_toast(message: String, color: Color) -> Element<'static, InteractiveOcrMessage> {
+        container(
+            text(message)
+                .size(14)
+                .style(move |_theme: &iced::Theme| iced::widget::text::Style {
+                    color: Some(color),
+                }),
+        )
+        .padding([8, 16])
+        .style(|_theme| iced::widget::container::Style {
+            background: Some(iced::Background::Color(Color::from_rgba(
+                0.1, 0.1, 0.1, 0.9,
+            ))),
+            border: Border {
+                color: Color::from_rgba(0.4, 0.4, 0.4, 0.5),
+                width: 1.0,
+                radius: 8.0.into(),
+            },
+            shadow: Shadow {
+                color: Color::from_rgba(0.0, 0.0, 0.0, 0.3),
+                offset: Vector::new(0.0, 2.0),
+                blur_radius: 6.0,
+            },
+            text_color: None,
+            snap: false,
+        })
+        .into()
+    }
+
+    fn build_help_hint(&self) -> Element<'_, InteractiveOcrMessage> {
+        let hint_content = row![
+            text("💡 Click and drag on text to select • ⌘A to select all • Esc to deselect")
+                .size(13)
+                .style(|_theme: &iced::Theme| iced::widget::text::Style {
+                    color: Some(Color::from_rgba(0.9, 0.9, 0.9, 0.95)),
+                }),
+            button(text("✕").size(12))
+                .padding([4, 8])
+                .style(|_theme: &iced::Theme, status| {
+                    let bg = match status {
+                        button::Status::Hovered => Color::from_rgba(0.4, 0.4, 0.4, 0.8),
+                        button::Status::Pressed => Color::from_rgba(0.3, 0.3, 0.3, 0.8),
+                        _ => Color::TRANSPARENT,
+                    };
+                    button::Style {
+                        background: Some(iced::Background::Color(bg)),
+                        text_color: Color::from_rgba(0.8, 0.8, 0.8, 0.9),
+                        border: Border::default(),
+                        shadow: Shadow::default(),
+                        snap: false,
+                    }
+                })
+                .on_press(InteractiveOcrMessage::DismissHelpHint)
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center);
+
+        container(hint_content)
+            .padding([10, 16])
+            .style(|_theme| iced::widget::container::Style {
+                background: Some(iced::Background::Color(Color::from_rgba(
+                    0.1, 0.1, 0.15, 0.92,
+                ))),
+                border: Border {
+                    color: Color::from_rgba(0.3, 0.5, 0.8, 0.5),
+                    width: 1.0,
+                    radius: 8.0.into(),
+                },
+                shadow: Shadow {
+                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.4),
+                    offset: Vector::new(0.0, 2.0),
+                    blur_radius: 8.0,
+                },
+                text_color: None,
+                snap: false,
+            })
+            .into()
+    }
+
+    fn floating_btn_style(&self, status: button::Status, is_active: bool) -> button::Style {
+        let base_bg = if is_active {
+            Color::from_rgba(0.3, 0.6, 1.0, 0.9)
+        } else {
+            Color::from_rgba(0.15, 0.15, 0.15, 0.85)
+        };
+        let bg = match status {
+            button::Status::Hovered => {
+                if is_active {
+                    Color::from_rgba(0.4, 0.7, 1.0, 0.95)
+                } else {
+                    Color::from_rgba(0.25, 0.25, 0.25, 0.9)
+                }
+            }
+            button::Status::Pressed => {
+                if is_active {
+                    Color::from_rgba(0.2, 0.5, 0.9, 0.95)
+                } else {
+                    Color::from_rgba(0.2, 0.2, 0.2, 0.9)
+                }
+            }
+            _ => base_bg,
+        };
+        button::Style {
+            background: Some(iced::Background::Color(bg)),
+            text_color: Color::WHITE,
+            border: Border {
+                color: if is_active {
+                    Color::from_rgba(0.4, 0.7, 1.0, 0.7)
+                } else {
+                    Color::from_rgba(0.5, 0.5, 0.5, 0.4)
+                },
+                width: 1.0,
+                radius: 6.0.into(),
+            },
+            shadow: Shadow::default(),
+            snap: false,
+        }
+    }
+
+    fn color_btn_style(&self, status: button::Status, is_selected: bool) -> button::Style {
+        let bg = match status {
+            button::Status::Hovered => Color::from_rgba(0.3, 0.3, 0.3, 0.9),
+            button::Status::Pressed => Color::from_rgba(0.2, 0.2, 0.2, 0.9),
+            _ => Color::from_rgba(0.15, 0.15, 0.15, 0.85),
+        };
+        button::Style {
+            background: Some(iced::Background::Color(bg)),
+            text_color: Color::WHITE,
+            border: Border {
+                color: if is_selected {
+                    Color::from_rgba(1.0, 1.0, 1.0, 0.8)
+                } else {
+                    Color::from_rgba(0.4, 0.4, 0.4, 0.4)
+                },
+                width: if is_selected { 2.0 } else { 1.0 },
+                radius: 6.0.into(),
+            },
+            shadow: Shadow::default(),
+            snap: false,
+        }
+    }
+
+    fn tooltip_style(_theme: &iced::Theme) -> iced::widget::container::Style {
+        iced::widget::container::Style {
+            background: Some(iced::Background::Color(Color::from_rgba(
+                0.1, 0.1, 0.1, 0.95,
+            ))),
+            border: Border {
+                color: Color::from_rgba(0.4, 0.4, 0.4, 0.6),
+                width: 1.0,
+                radius: 4.0.into(),
+            },
+            shadow: Shadow {
+                color: Color::from_rgba(0.0, 0.0, 0.0, 0.3),
+                offset: Vector::new(0.0, 2.0),
+                blur_radius: 4.0,
+            },
+            text_color: Some(Color::WHITE),
+            snap: false,
+        }
     }
 
     fn render_image_with_overlay(
@@ -539,6 +1083,12 @@ impl InteractiveOcrView {
             image_width: self.image_width,
             image_height: self.image_height,
             selected_indices: self.selected_chars.clone(),
+            draw_strokes: self.draw_strokes.clone(),
+            current_stroke_points: self.current_stroke_points.clone(),
+            is_drawing: self.is_drawing,
+            draw_color: self.draw_color,
+            draw_width: self.draw_width,
+            draw_mode_enabled: self.draw_mode_enabled,
         };
 
         let overlay_canvas =
@@ -558,6 +1108,12 @@ struct OcrOverlay {
     image_width: u32,
     image_height: u32,
     selected_indices: Vec<usize>,
+    draw_strokes: Vec<DrawStroke>,
+    current_stroke_points: Vec<Point>,
+    is_drawing: bool,
+    draw_color: Color,
+    draw_width: f32,
+    draw_mode_enabled: bool,
 }
 
 impl canvas::Program<InteractiveOcrMessage> for OcrOverlay {
@@ -630,6 +1186,52 @@ impl canvas::Program<InteractiveOcrMessage> for OcrOverlay {
             }
         }
 
+        for stroke in &self.draw_strokes {
+            if stroke.points.len() > 1 {
+                let mut path_builder = canvas::path::Builder::new();
+                let first_point = stroke.points[0];
+                let first_scaled_x = offset_x + (first_point.x / img_width) * display_width;
+                let first_scaled_y = offset_y + (first_point.y / img_height) * display_height;
+                path_builder.move_to(Point::new(first_scaled_x, first_scaled_y));
+
+                for point in stroke.points.iter().skip(1) {
+                    let scaled_x = offset_x + (point.x / img_width) * display_width;
+                    let scaled_y = offset_y + (point.y / img_height) * display_height;
+                    path_builder.line_to(Point::new(scaled_x, scaled_y));
+                }
+
+                let path = path_builder.build();
+                frame.stroke(
+                    &path,
+                    canvas::Stroke::default()
+                        .with_color(stroke.color)
+                        .with_width(stroke.width),
+                );
+            }
+        }
+
+        if self.is_drawing && self.current_stroke_points.len() > 1 {
+            let mut path_builder = canvas::path::Builder::new();
+            let first_point = self.current_stroke_points[0];
+            let first_scaled_x = offset_x + (first_point.x / img_width) * display_width;
+            let first_scaled_y = offset_y + (first_point.y / img_height) * display_height;
+            path_builder.move_to(Point::new(first_scaled_x, first_scaled_y));
+
+            for point in self.current_stroke_points.iter().skip(1) {
+                let scaled_x = offset_x + (point.x / img_width) * display_width;
+                let scaled_y = offset_y + (point.y / img_height) * display_height;
+                path_builder.line_to(Point::new(scaled_x, scaled_y));
+            }
+
+            let path = path_builder.build();
+            frame.stroke(
+                &path,
+                canvas::Stroke::default()
+                    .with_color(self.draw_color)
+                    .with_width(self.draw_width),
+            );
+        }
+
         vec![frame.into_geometry()]
     }
 
@@ -679,6 +1281,9 @@ impl canvas::Program<InteractiveOcrMessage> for OcrOverlay {
                     key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),
                     ..
                 } => {
+                    if !self.selected_indices.is_empty() {
+                        return Some(canvas::Action::publish(InteractiveOcrMessage::DeselectAll));
+                    }
                     return Some(canvas::Action::publish(InteractiveOcrMessage::Close));
                 }
                 iced::keyboard::Event::KeyPressed {
@@ -696,6 +1301,14 @@ impl canvas::Program<InteractiveOcrMessage> for OcrOverlay {
             iced::Event::Mouse(mouse_event) => match mouse_event {
                 iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left) => {
                     if let Some(cursor_position) = cursor.position_in(bounds) {
+                        if self.draw_mode_enabled {
+                            let rel_x = (cursor_position.x - offset_x) / scale_x;
+                            let rel_y = (cursor_position.y - offset_y) / scale_y;
+                            return Some(canvas::Action::publish(
+                                InteractiveOcrMessage::StartDrawing(Point::new(rel_x, rel_y)),
+                            ));
+                        }
+
                         for (idx, char_pos) in self.char_positions.iter().enumerate() {
                             let rect_bounds = &char_pos.bounds;
                             let scaled_x = offset_x + (rect_bounds.x * scale_x);
@@ -723,6 +1336,14 @@ impl canvas::Program<InteractiveOcrMessage> for OcrOverlay {
                 }
                 iced::mouse::Event::CursorMoved { .. } => {
                     if let Some(cursor_position) = cursor.position_in(bounds) {
+                        if self.is_drawing {
+                            let rel_x = (cursor_position.x - offset_x) / scale_x;
+                            let rel_y = (cursor_position.y - offset_y) / scale_y;
+                            return Some(canvas::Action::publish(
+                                InteractiveOcrMessage::UpdateDrawing(Point::new(rel_x, rel_y)),
+                            ));
+                        }
+
                         for (idx, char_pos) in self.char_positions.iter().enumerate() {
                             let rect_bounds = &char_pos.bounds;
                             let scaled_x = offset_x + (rect_bounds.x * scale_x);
@@ -744,7 +1365,14 @@ impl canvas::Program<InteractiveOcrMessage> for OcrOverlay {
                     }
                 }
                 iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left) => {
-                    return Some(canvas::Action::publish(InteractiveOcrMessage::EndDrag));
+                    if self.is_drawing {
+                        return Some(canvas::Action::publish(InteractiveOcrMessage::EndDrawing));
+                    } else {
+                        return Some(canvas::Action::publish(InteractiveOcrMessage::EndDrag));
+                    }
+                }
+                iced::mouse::Event::ButtonReleased(iced::mouse::Button::Right) => {
+                    return Some(canvas::Action::publish(InteractiveOcrMessage::EndDrawing));
                 }
                 _ => {}
             },

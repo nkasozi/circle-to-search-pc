@@ -37,6 +37,7 @@ pub struct AppOrchestrator {
     settings: UserSettings,
     settings_window_id: Option<Id>,
     temp_settings: Option<UserSettings>,
+    pending_draw_strokes: Option<Vec<crate::presentation::DrawStroke>>,
 }
 
 #[derive(Clone)]
@@ -74,6 +75,8 @@ pub enum OrchestratorMessage {
     OpenOnboarding,
     OnboardingMsg(Id, OnboardingMessage),
     EnableKeyboardListener,
+    CopyImageToClipboard(Id, CaptureBuffer),
+    SaveImageToFile(Id, CaptureBuffer),
 }
 
 impl std::fmt::Debug for OrchestratorMessage {
@@ -121,6 +124,12 @@ impl std::fmt::Debug for OrchestratorMessage {
             OrchestratorMessage::OpenOnboarding => write!(f, "OpenOnboarding"),
             OrchestratorMessage::OnboardingMsg(id, _) => write!(f, "OnboardingMsg({:?})", id),
             OrchestratorMessage::EnableKeyboardListener => write!(f, "EnableKeyboardListener"),
+            OrchestratorMessage::CopyImageToClipboard(id, _) => {
+                write!(f, "CopyImageToClipboard({:?})", id)
+            }
+            OrchestratorMessage::SaveImageToFile(id, _) => {
+                write!(f, "SaveImageToFile({:?})", id)
+            }
         }
     }
 }
@@ -146,6 +155,7 @@ impl AppOrchestrator {
             settings,
             settings_window_id: None,
             temp_settings: None,
+            pending_draw_strokes: None,
         }
     }
 
@@ -288,6 +298,12 @@ impl AppOrchestrator {
             }
             OrchestratorMessage::EnableKeyboardListener => {
                 log::debug!("[ORCHESTRATOR] EnableKeyboardListener handled at app level");
+            }
+            OrchestratorMessage::CopyImageToClipboard(window_id, buffer) => {
+                return self.handle_copy_image_to_clipboard(window_id, buffer);
+            }
+            OrchestratorMessage::SaveImageToFile(window_id, buffer) => {
+                return self.handle_save_image_to_file(window_id, buffer);
             }
         }
 
@@ -477,6 +493,7 @@ impl AppOrchestrator {
             log::info!("[ORCHESTRATOR] Selection confirmed by overlay");
             return self.update(OrchestratorMessage::ConfirmSelection(window_id));
         }
+
         if let Some(AppWindow::CaptureOverlay(capture_view)) = self.windows.get_mut(&window_id) {
             log::debug!("[ORCHESTRATOR] Updating overlay view state");
             capture_view.update(capture_msg);
@@ -549,10 +566,15 @@ impl AppOrchestrator {
                     ..Default::default()
                 });
 
-                let view = crate::presentation::InteractiveOcrView::build(
+                let mut view = crate::presentation::InteractiveOcrView::build(
                     buffer.clone(),
                     self.settings.theme_mode.clone(),
                 );
+
+                if let Some(strokes) = self.pending_draw_strokes.take() {
+                    view.set_draw_strokes(strokes);
+                }
+
                 self.windows.insert(id, AppWindow::InteractiveOcr(view));
                 self.status = "Processing OCR...".to_string();
 
@@ -696,6 +718,29 @@ impl AppOrchestrator {
                         crate::presentation::InteractiveOcrMessage::HideToast,
                     )
                 });
+            }
+            crate::presentation::InteractiveOcrMessage::CopyImageToClipboard => {
+                if let Some(AppWindow::InteractiveOcr(view)) = self.windows.get(&window_id) {
+                    let buffer = view.get_capture_buffer().clone();
+                    return self
+                        .update(OrchestratorMessage::CopyImageToClipboard(window_id, buffer));
+                }
+            }
+            crate::presentation::InteractiveOcrMessage::SaveImageToFile => {
+                if let Some(AppWindow::InteractiveOcr(view)) = self.windows.get(&window_id) {
+                    let buffer = view.get_capture_buffer().clone();
+                    return self.update(OrchestratorMessage::SaveImageToFile(window_id, buffer));
+                }
+            }
+            crate::presentation::InteractiveOcrMessage::Recrop => {
+                if let Some(AppWindow::InteractiveOcr(view)) = self.windows.get(&window_id) {
+                    let draw_strokes = view.get_draw_strokes();
+                    self.pending_draw_strokes = Some(draw_strokes);
+                    return Task::batch(vec![
+                        window::close(window_id),
+                        self.update(OrchestratorMessage::CaptureScreen),
+                    ]);
+                }
             }
             _ => {}
         }
@@ -1305,6 +1350,63 @@ impl AppOrchestrator {
         let enable_keyboard_task = Task::done(OrchestratorMessage::EnableKeyboardListener);
 
         Task::batch(vec![close_task, open_main_task, enable_keyboard_task])
+    }
+
+    fn handle_copy_image_to_clipboard(
+        &mut self,
+        _window_id: Id,
+        buffer: CaptureBuffer,
+    ) -> Task<OrchestratorMessage> {
+        log::info!("[ORCHESTRATOR] Copying image to clipboard");
+
+        Task::future(async move {
+            match crate::infrastructure::utils::copy_image_to_clipboard(
+                &buffer.raw_data,
+                buffer.width,
+                buffer.height,
+            ) {
+                Ok(()) => {
+                    log::info!("[ORCHESTRATOR] Image copied to clipboard successfully");
+                }
+                Err(e) => {
+                    log::error!("[ORCHESTRATOR] Failed to copy image to clipboard: {}", e);
+                }
+            }
+            OrchestratorMessage::CreateHiddenWindow
+        })
+    }
+
+    fn handle_save_image_to_file(
+        &mut self,
+        window_id: Id,
+        buffer: CaptureBuffer,
+    ) -> Task<OrchestratorMessage> {
+        log::info!("[ORCHESTRATOR] Saving image to file");
+        let save_location = self.settings.screenshot_save_location.clone();
+
+        Task::future(async move {
+            match crate::infrastructure::utils::save_image_to_file(
+                &buffer.raw_data,
+                buffer.width,
+                buffer.height,
+                &save_location,
+            ) {
+                Ok(path) => {
+                    log::info!("[ORCHESTRATOR] Image saved successfully to: {}", path);
+                    OrchestratorMessage::InteractiveOcrMessage(
+                        window_id,
+                        crate::presentation::InteractiveOcrMessage::SaveSuccess(path),
+                    )
+                }
+                Err(e) => {
+                    log::error!("[ORCHESTRATOR] Failed to save image: {}", e);
+                    OrchestratorMessage::InteractiveOcrMessage(
+                        window_id,
+                        crate::presentation::InteractiveOcrMessage::SaveFailed(e.to_string()),
+                    )
+                }
+            }
+        })
     }
 }
 
