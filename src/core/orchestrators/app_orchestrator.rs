@@ -984,7 +984,7 @@ impl AppOrchestrator {
         .width(Length::Fill)
         .center_x(Length::Fill);
 
-        let or_text = container(text("or").size(13).center().style(|_theme: &iced::Theme| {
+        let or_text = container(text("OR").size(13).center().style(|_theme: &iced::Theme| {
             iced::widget::text::Style {
                 color: Some(Color::from_rgba(0.5, 0.5, 0.5, 1.0)),
             }
