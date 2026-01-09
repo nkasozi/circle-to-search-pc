@@ -5,5 +5,5 @@ use crate::core::models::CaptureBuffer;
 
 #[async_trait]
 pub trait ReverseImageSearchProvider: Send + Sync {
-    async fn perform_search(&self, buffer: &CaptureBuffer) -> Result<String>;
+    async fn perform_search(&self, buffer: &CaptureBuffer, query: Option<&str>) -> Result<String>;
 }

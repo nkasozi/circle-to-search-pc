@@ -57,7 +57,8 @@ pub enum OrchestratorMessage {
     OcrServiceReady(Arc<dyn OcrService>),
     OcrServiceFailed(String),
     InteractiveOcrMessage(Id, crate::presentation::InteractiveOcrMessage),
-    PerformImageSearch(Id, CaptureBuffer),
+    PerformImageSearch(Id, CaptureBuffer, Option<String>),
+    SpinnerTick,
     #[allow(dead_code)]
     CloseWindow(Id),
     WindowClosed(Id),
@@ -106,9 +107,10 @@ impl std::fmt::Debug for OrchestratorMessage {
             OrchestratorMessage::InteractiveOcrMessage(id, _) => {
                 write!(f, "InteractiveOcrMessage({:?})", id)
             }
-            OrchestratorMessage::PerformImageSearch(id, _) => {
-                write!(f, "PerformImageSearch({:?})", id)
+            OrchestratorMessage::PerformImageSearch(id, _, query) => {
+                write!(f, "PerformImageSearch({:?}, query={:?})", id, query)
             }
+            OrchestratorMessage::SpinnerTick => write!(f, "SpinnerTick"),
             OrchestratorMessage::CloseWindow(id) => write!(f, "CloseWindow({:?})", id),
             OrchestratorMessage::WindowClosed(id) => write!(f, "WindowClosed({:?})", id),
             OrchestratorMessage::Keyboard(event) => write!(f, "Keyboard({:?})", event),
@@ -157,6 +159,17 @@ impl AppOrchestrator {
             temp_settings: None,
             pending_draw_strokes: None,
         }
+    }
+
+    pub fn is_any_window_searching(&self) -> bool {
+        for window in self.windows.values() {
+            if let AppWindow::InteractiveOcr(view) = window {
+                if view.is_searching() {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     pub fn create_hidden_window(&mut self) -> Task<OrchestratorMessage> {
@@ -239,8 +252,15 @@ impl AppOrchestrator {
             OrchestratorMessage::InteractiveOcrMessage(window_id, ocr_msg) => {
                 return self.handle_interactive_ocr_message(window_id, ocr_msg);
             }
-            OrchestratorMessage::PerformImageSearch(window_id, buffer) => {
-                return self.handle_perform_image_search(window_id, buffer);
+            OrchestratorMessage::PerformImageSearch(window_id, buffer, query) => {
+                return self.handle_perform_image_search(window_id, buffer, query);
+            }
+            OrchestratorMessage::SpinnerTick => {
+                for (window_id, window) in &mut self.windows {
+                    if let AppWindow::InteractiveOcr(view) = window {
+                        view.update(crate::presentation::InteractiveOcrMessage::SpinnerTick);
+                    }
+                }
             }
             OrchestratorMessage::CloseWindow(id) => {
                 log::info!("[ORCHESTRATOR] Closing window: {:?}", id);
@@ -707,7 +727,13 @@ impl AppOrchestrator {
             crate::presentation::InteractiveOcrMessage::SearchSelected => {
                 if let Some(AppWindow::InteractiveOcr(view)) = self.windows.get(&window_id) {
                     let buffer = view.get_capture_buffer().clone();
-                    return Task::done(OrchestratorMessage::PerformImageSearch(window_id, buffer));
+                    let query = view.get_search_query().to_string();
+                    let query_option = if query.is_empty() { None } else { Some(query) };
+                    return Task::done(OrchestratorMessage::PerformImageSearch(
+                        window_id,
+                        buffer,
+                        query_option,
+                    ));
                 }
             }
             crate::presentation::InteractiveOcrMessage::CopySelected => {
@@ -751,10 +777,12 @@ impl AppOrchestrator {
         &mut self,
         window_id: Id,
         buffer: CaptureBuffer,
+        query: Option<String>,
     ) -> Task<OrchestratorMessage> {
         log::info!(
-            "[ORCHESTRATOR] Starting image search for window {:?}",
-            window_id
+            "[ORCHESTRATOR] Starting image search for window {:?} with query: {:?}",
+            window_id,
+            query
         );
 
         let search_provider = Arc::clone(&self.reverse_image_search_provider);
@@ -765,7 +793,7 @@ impl AppOrchestrator {
                 crate::presentation::InteractiveOcrMessage::SearchUploading,
             )),
             Task::future(async move {
-                let search_future = search_provider.perform_search(&buffer);
+                let search_future = search_provider.perform_search(&buffer, query.as_deref());
 
                 let timeout_duration = std::time::Duration::from_secs(30);
                 match tokio::time::timeout(timeout_duration, search_future).await {
@@ -945,17 +973,20 @@ impl AppOrchestrator {
         .style(|theme, status| app_theme::primary_button_style(theme, status))
         .on_press(OrchestratorMessage::CaptureScreen);
 
-        let hotkey_hint = text(format!(
-            "Press {} anywhere\nor",
-            &self.settings.capture_hotkey
-        ))
-        .size(13)
-        .style(|_theme: &iced::Theme| iced::widget::text::Style {
-            color: Some(Color::from_rgba(0.5, 0.5, 0.5, 1.0)),
-        });
+        let hotkey_text = text(format!("Press {} anywhere", &self.settings.capture_hotkey))
+            .size(13)
+            .style(|_theme: &iced::Theme| iced::widget::text::Style {
+                color: Some(Color::from_rgba(0.5, 0.5, 0.5, 1.0)),
+            });
 
-        let action_content = column![hotkey_hint, capture_btn]
-            .spacing(12)
+        let or_text = text("or")
+            .size(13)
+            .style(|_theme: &iced::Theme| iced::widget::text::Style {
+                color: Some(Color::from_rgba(0.5, 0.5, 0.5, 1.0)),
+            });
+
+        let action_content = column![hotkey_text, or_text, capture_btn]
+            .spacing(8)
             .align_x(Alignment::Center);
 
         let action_panel = container(action_content)
@@ -1022,15 +1053,17 @@ impl AppOrchestrator {
             });
 
         let content = column![
+            Space::new().height(Length::Fill),
             header_section,
-            Space::new().height(Length::Fixed(28.0)),
+            Space::new().height(Length::Fixed(32.0)),
             action_panel,
             Space::new().height(Length::Fixed(16.0)),
             status_indicator,
-            Space::new().height(Length::Fixed(20.0)),
+            Space::new().height(Length::Fixed(24.0)),
             footer_panel,
+            Space::new().height(Length::Fill),
         ]
-        .spacing(4)
+        .spacing(0)
         .padding(32)
         .align_x(Alignment::Center)
         .max_width(500);

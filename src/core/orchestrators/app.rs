@@ -173,6 +173,17 @@ impl CircleApp {
                     },
                 )
             }),
+            iced::Subscription::run(|| {
+                iced::stream::channel(
+                    10,
+                    |mut output: futures::channel::mpsc::Sender<OrchestratorMessage>| async move {
+                        loop {
+                            tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+                            let _ = output.try_send(OrchestratorMessage::SpinnerTick);
+                        }
+                    },
+                )
+            }),
         ];
 
         if self.keyboard_listener_enabled {

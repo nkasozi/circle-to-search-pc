@@ -21,22 +21,35 @@ impl GoogleLensSearchProvider {
         }
     }
 
-    fn construct_search_url(&self, image_url: &str) -> String {
+    fn construct_search_url(&self, image_url: &str, query: Option<&str>) -> String {
         let encoded_url = urlencoding::encode(image_url);
-        self.search_url_template.replace("{}", &encoded_url)
+        let mut url = self.search_url_template.replace("{}", &encoded_url);
+
+        if let Some(q) = query {
+            if !q.trim().is_empty() {
+                let encoded_query = urlencoding::encode(q.trim());
+                url.push_str("&q=");
+                url.push_str(&encoded_query);
+            }
+        }
+
+        url
     }
 }
 
 #[async_trait]
 impl ReverseImageSearchProvider for GoogleLensSearchProvider {
-    async fn perform_search(&self, buffer: &CaptureBuffer) -> Result<String> {
+    async fn perform_search(&self, buffer: &CaptureBuffer, query: Option<&str>) -> Result<String> {
         let image_url = self.image_hosting_service.upload_image(buffer).await?;
 
-        let search_url = self.construct_search_url(&image_url);
+        let search_url = self.construct_search_url(&image_url, query);
 
         log::info!("[GOOGLE_LENS] Opening Google Lens reverse image search");
         log::debug!("[GOOGLE_LENS] Image URL: {}", image_url);
         log::debug!("[GOOGLE_LENS] Search URL: {}", search_url);
+        if let Some(q) = query {
+            log::debug!("[GOOGLE_LENS] Query: {}", q);
+        }
 
         open::that(&search_url)?;
 
@@ -93,9 +106,25 @@ mod tests {
             "https://lens.google.com/uploadbyurl?url={}".to_string(),
         );
 
-        let result = provider.construct_search_url("https://test.com/my image.jpg");
+        let result = provider.construct_search_url("https://test.com/my image.jpg", None);
 
         assert!(result.contains("https%3A%2F%2Ftest.com%2Fmy%20image.jpg"));
+        assert!(result.starts_with("https://lens.google.com/uploadbyurl?url="));
+    }
+
+    #[test]
+    fn test_construct_search_url_with_query() {
+        let mock_service = Arc::new(MockImageHostingService::new(
+            "https://example.com/image.png".to_string(),
+        ));
+        let provider = GoogleLensSearchProvider::new(
+            mock_service,
+            "https://lens.google.com/uploadbyurl?url={}".to_string(),
+        );
+
+        let result = provider.construct_search_url("https://test.com/image.jpg", Some("red shoes"));
+
+        assert!(result.contains("&q=red%20shoes"));
         assert!(result.starts_with("https://lens.google.com/uploadbyurl?url="));
     }
 
@@ -105,7 +134,8 @@ mod tests {
         let provider =
             GoogleLensSearchProvider::new(mock_service, "https://search.com?img={}".to_string());
 
-        let result = provider.construct_search_url("https://example.com/image?id=123&type=png");
+        let result =
+            provider.construct_search_url("https://example.com/image?id=123&type=png", None);
 
         assert!(result.contains("https%3A%2F%2Fexample.com%2Fimage%3Fid%3D123%26type%3Dpng"));
     }

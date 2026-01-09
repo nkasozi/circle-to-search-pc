@@ -1,4 +1,4 @@
-use iced::widget::{button, canvas, container, image, row, stack, text, tooltip};
+use iced::widget::{button, canvas, container, image, row, stack, text, text_input, tooltip};
 use iced::{Alignment, Border, Color, Element, Length, Point, Rectangle, Shadow, Size, Vector};
 
 use crate::core::models::{CaptureBuffer, OcrResult, ThemeMode};
@@ -52,6 +52,8 @@ pub struct InteractiveOcrView {
     drag_start: Option<usize>,
     is_selecting: bool,
     search_state: SearchState,
+    search_query: String,
+    spinner_frame: usize,
     theme_mode: ThemeMode,
     copy_state: CopyState,
     save_state: SaveState,
@@ -71,9 +73,11 @@ pub enum InteractiveOcrMessage {
     EndDrag,
     CopySelected,
     SearchSelected,
+    SearchQueryChanged(String),
     SearchUploading,
     SearchCompleted,
     SearchFailed(String),
+    SpinnerTick,
     HideToast,
     SelectAll,
     DeselectAll,
@@ -111,6 +115,8 @@ impl InteractiveOcrView {
             drag_start: None,
             is_selecting: false,
             search_state: SearchState::Idle,
+            search_query: String::new(),
+            spinner_frame: 0,
             theme_mode,
             copy_state: CopyState::Idle,
             save_state: SaveState::Idle,
@@ -126,6 +132,14 @@ impl InteractiveOcrView {
 
     pub fn get_capture_buffer(&self) -> &CaptureBuffer {
         &self.capture_buffer
+    }
+
+    pub fn get_search_query(&self) -> &str {
+        &self.search_query
+    }
+
+    pub fn is_searching(&self) -> bool {
+        matches!(self.search_state, SearchState::UploadingImage)
     }
 
     pub fn get_draw_strokes(&self) -> Vec<DrawStroke> {
@@ -246,13 +260,20 @@ impl InteractiveOcrView {
             }
             InteractiveOcrMessage::SearchSelected => {
                 if matches!(self.search_state, SearchState::Idle) {
-                    log::info!("[INTERACTIVE_OCR] Starting reverse image search");
+                    log::info!(
+                        "[INTERACTIVE_OCR] Starting reverse image search with query: '{}'",
+                        self.search_query
+                    );
                     self.search_state = SearchState::UploadingImage;
                 }
+            }
+            InteractiveOcrMessage::SearchQueryChanged(query) => {
+                self.search_query = query;
             }
             InteractiveOcrMessage::SearchUploading => {
                 log::debug!("[INTERACTIVE_OCR] Search state: Uploading image");
                 self.search_state = SearchState::UploadingImage;
+                self.spinner_frame = 0;
             }
             InteractiveOcrMessage::SearchCompleted => {
                 log::info!("[INTERACTIVE_OCR] Search completed successfully");
@@ -263,6 +284,11 @@ impl InteractiveOcrView {
                 log::error!("[INTERACTIVE_OCR] Search failed: {}", error);
                 self.search_state = SearchState::Failed(error.clone());
                 self.search_state = SearchState::Idle;
+            }
+            InteractiveOcrMessage::SpinnerTick => {
+                if matches!(self.search_state, SearchState::UploadingImage) {
+                    self.spinner_frame = (self.spinner_frame + 1) % 8;
+                }
             }
             InteractiveOcrMessage::HideToast => {
                 self.copy_state = CopyState::Idle;
@@ -690,13 +716,42 @@ impl InteractiveOcrView {
         }
 
         let (search_text, is_searching) = match &self.search_state {
-            SearchState::Idle => ("🔍 Search", false),
-            SearchState::UploadingImage => ("📤...", true),
+            SearchState::Idle => ("🔍", false),
+            SearchState::UploadingImage => {
+                let spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"];
+                (spinner_chars[self.spinner_frame], true)
+            }
             SearchState::Completed => ("✅", true),
             SearchState::Failed(_) => ("❌", true),
         };
 
-        let mut search_btn = button(text(search_text).size(13)).padding([8, 14]).style(
+        let search_input = text_input("Add search query...", &self.search_query)
+            .on_input(InteractiveOcrMessage::SearchQueryChanged)
+            .padding([6, 10])
+            .width(Length::Fixed(150.0))
+            .style(|_theme: &iced::Theme, _status| text_input::Style {
+                background: iced::Background::Color(Color::from_rgba(0.1, 0.1, 0.1, 0.9)),
+                border: Border {
+                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.6),
+                    width: 1.0,
+                    radius: 6.0.into(),
+                },
+                icon: Color::from_rgba(0.6, 0.6, 0.6, 0.8),
+                placeholder: Color::from_rgba(0.5, 0.5, 0.5, 0.7),
+                value: Color::WHITE,
+                selection: Color::from_rgba(0.3, 0.5, 0.8, 0.5),
+            });
+
+        action_row = action_row.push(
+            tooltip(
+                search_input,
+                "Optional: Add text to refine your search",
+                tooltip::Position::Top,
+            )
+            .style(Self::tooltip_style),
+        );
+
+        let mut search_btn = button(text(search_text).size(14)).padding([8, 12]).style(
             |_theme: &iced::Theme, status| {
                 let bg = match status {
                     button::Status::Hovered => Color::from_rgba(0.2, 0.5, 0.9, 0.95),
