@@ -1395,7 +1395,7 @@ impl AppOrchestrator {
 
     fn handle_copy_image_to_clipboard(
         &mut self,
-        _window_id: Id,
+        window_id: Id,
         buffer: CaptureBuffer,
     ) -> Task<OrchestratorMessage> {
         log::info!("[ORCHESTRATOR] Copying image to clipboard");
@@ -1408,12 +1408,19 @@ impl AppOrchestrator {
             ) {
                 Ok(()) => {
                     log::info!("[ORCHESTRATOR] Image copied to clipboard successfully");
+                    OrchestratorMessage::InteractiveOcrMessage(
+                        window_id,
+                        crate::presentation::InteractiveOcrMessage::CopyImageSuccess,
+                    )
                 }
                 Err(e) => {
                     log::error!("[ORCHESTRATOR] Failed to copy image to clipboard: {}", e);
+                    OrchestratorMessage::InteractiveOcrMessage(
+                        window_id,
+                        crate::presentation::InteractiveOcrMessage::CopyImageFailed(e.to_string()),
+                    )
                 }
             }
-            OrchestratorMessage::CreateHiddenWindow
         })
     }
 

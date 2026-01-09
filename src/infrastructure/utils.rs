@@ -184,25 +184,33 @@ pub fn copy_image_to_clipboard(rgba_data: &[u8], width: u32, height: u32) -> Res
 
         let png_data = convert_rgba_to_png(rgba_data, width, height)?;
 
-        let result = Command::new("osascript")
-            .arg("-e")
-            .arg("set the clipboard to (read (POSIX file \"/dev/stdin\") as «class PNGf»)")
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .and_then(|mut child| {
-                if let Some(ref mut stdin) = child.stdin {
-                    stdin.write_all(&png_data)?;
-                }
-                child.wait()
-            });
+        let temp_path = std::env::temp_dir().join("circle_to_search_clipboard.png");
+        std::fs::write(&temp_path, &png_data)
+            .map_err(|e| format!("Failed to write temp file: {}", e))?;
+
+        let temp_path_str = temp_path.to_str().ok_or("Invalid temp path")?;
+
+        let script = format!(
+            "set the clipboard to (read (POSIX file \"{}\") as «class PNGf»)",
+            temp_path_str
+        );
+
+        let result = Command::new("osascript").arg("-e").arg(&script).output();
+
+        let _ = std::fs::remove_file(&temp_path);
 
         match result {
-            Ok(status) if status.success() => {
+            Ok(output) if output.status.success() => {
                 log::info!("[CLIPBOARD] Successfully copied image");
                 Ok(())
             }
-            Ok(status) => {
-                let error_message = format!("osascript exited with status: {:?}", status.code());
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let error_message = format!(
+                    "osascript exited with status: {:?}, stderr: {}",
+                    output.status.code(),
+                    stderr.trim()
+                );
                 log::error!("[CLIPBOARD] {}", error_message);
                 Err(error_message)
             }

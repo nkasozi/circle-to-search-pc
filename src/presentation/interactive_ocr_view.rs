@@ -20,6 +20,13 @@ pub enum CopyState {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum ImageCopyState {
+    Idle,
+    Success,
+    Failed(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum SaveState {
     Idle,
     Success(String),
@@ -57,6 +64,7 @@ pub struct InteractiveOcrView {
     #[allow(dead_code)]
     theme_mode: ThemeMode,
     copy_state: CopyState,
+    image_copy_state: ImageCopyState,
     save_state: SaveState,
     draw_strokes: Vec<DrawStroke>,
     current_stroke_points: Vec<Point>,
@@ -94,6 +102,8 @@ pub enum InteractiveOcrMessage {
     ClearDrawings,
     SaveSuccess(String),
     SaveFailed(String),
+    CopyImageSuccess,
+    CopyImageFailed(String),
     #[allow(dead_code)]
     HideSaveToast,
 }
@@ -121,6 +131,7 @@ impl InteractiveOcrView {
             spinner_frame: 0,
             theme_mode,
             copy_state: CopyState::Idle,
+            image_copy_state: ImageCopyState::Idle,
             save_state: SaveState::Idle,
             draw_strokes: Vec::new(),
             current_stroke_points: Vec::new(),
@@ -295,6 +306,15 @@ impl InteractiveOcrView {
             }
             InteractiveOcrMessage::HideToast => {
                 self.copy_state = CopyState::Idle;
+                self.image_copy_state = ImageCopyState::Idle;
+            }
+            InteractiveOcrMessage::CopyImageSuccess => {
+                log::info!("[INTERACTIVE_OCR] Image copied to clipboard successfully");
+                self.image_copy_state = ImageCopyState::Success;
+            }
+            InteractiveOcrMessage::CopyImageFailed(error) => {
+                log::error!("[INTERACTIVE_OCR] Failed to copy image: {}", error);
+                self.image_copy_state = ImageCopyState::Failed(error);
             }
             InteractiveOcrMessage::SelectAll => {
                 log::info!(
@@ -522,6 +542,35 @@ impl InteractiveOcrView {
             };
 
         if let Some(toast) = notification_element {
+            let toast_positioned = container(toast)
+                .width(Length::Fill)
+                .padding(iced::Padding {
+                    top: 60.0,
+                    right: 0.0,
+                    bottom: 0.0,
+                    left: 0.0,
+                })
+                .align_x(Alignment::Center);
+            layers.push(toast_positioned.into());
+        }
+
+        let image_copy_toast: Option<Element<'_, InteractiveOcrMessage>> =
+            match &self.image_copy_state {
+                ImageCopyState::Success => Some(Self::build_save_toast(
+                    "✓ Image copied!".to_string(),
+                    Color::from_rgb(0.2, 0.8, 0.4),
+                )),
+                ImageCopyState::Failed(error) => {
+                    let message = format!("✗ Copy failed: {}", error);
+                    Some(Self::build_save_toast(
+                        message,
+                        Color::from_rgb(0.9, 0.3, 0.3),
+                    ))
+                }
+                ImageCopyState::Idle => None,
+            };
+
+        if let Some(toast) = image_copy_toast {
             let toast_positioned = container(toast)
                 .width(Length::Fill)
                 .padding(iced::Padding {
