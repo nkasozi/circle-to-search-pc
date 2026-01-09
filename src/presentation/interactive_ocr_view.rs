@@ -54,6 +54,7 @@ pub struct InteractiveOcrView {
     search_state: SearchState,
     search_query: String,
     spinner_frame: usize,
+    #[allow(dead_code)]
     theme_mode: ThemeMode,
     copy_state: CopyState,
     save_state: SaveState,
@@ -93,6 +94,7 @@ pub enum InteractiveOcrMessage {
     ClearDrawings,
     SaveSuccess(String),
     SaveFailed(String),
+    #[allow(dead_code)]
     HideSaveToast,
 }
 
@@ -138,6 +140,7 @@ impl InteractiveOcrView {
         &self.search_query
     }
 
+    #[allow(dead_code)]
     pub fn is_searching(&self) -> bool {
         matches!(self.search_state, SearchState::UploadingImage)
     }

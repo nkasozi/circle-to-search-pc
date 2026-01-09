@@ -161,6 +161,7 @@ impl AppOrchestrator {
         }
     }
 
+    #[allow(dead_code)]
     pub fn is_any_window_searching(&self) -> bool {
         for window in self.windows.values() {
             if let AppWindow::InteractiveOcr(view) = window {
@@ -256,7 +257,7 @@ impl AppOrchestrator {
                 return self.handle_perform_image_search(window_id, buffer, query);
             }
             OrchestratorMessage::SpinnerTick => {
-                for (window_id, window) in &mut self.windows {
+                for (_window_id, window) in &mut self.windows {
                     if let AppWindow::InteractiveOcr(view) = window {
                         view.update(crate::presentation::InteractiveOcrMessage::SpinnerTick);
                     }
@@ -1490,7 +1491,11 @@ mod tests {
     struct MockSearchProvider;
     #[async_trait::async_trait]
     impl ReverseImageSearchProvider for MockSearchProvider {
-        async fn perform_search(&self, _buffer: &CaptureBuffer) -> anyhow::Result<String> {
+        async fn perform_search(
+            &self,
+            _buffer: &CaptureBuffer,
+            _query: Option<&str>,
+        ) -> anyhow::Result<String> {
             Ok("https://test.com/search".to_string())
         }
     }

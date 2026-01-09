@@ -179,6 +179,7 @@ pub fn secondary_button_style(_theme: &Theme, status: button::Status) -> button:
     }
 }
 
+#[allow(dead_code)]
 pub fn danger_button_style(_theme: &Theme, status: button::Status) -> button::Style {
     match status {
         button::Status::Active => button::Style {
