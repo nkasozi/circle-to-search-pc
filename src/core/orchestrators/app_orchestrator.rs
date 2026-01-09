@@ -973,26 +973,35 @@ impl AppOrchestrator {
         .style(|theme, status| app_theme::primary_button_style(theme, status))
         .on_press(OrchestratorMessage::CaptureScreen);
 
-        let hotkey_text = text(format!("Press {} anywhere", &self.settings.capture_hotkey))
-            .size(13)
-            .style(|_theme: &iced::Theme| iced::widget::text::Style {
-                color: Some(Color::from_rgba(0.5, 0.5, 0.5, 1.0)),
-            });
+        let hotkey_text = container(
+            text(format!("Press {} anywhere", &self.settings.capture_hotkey))
+                .size(13)
+                .center()
+                .style(|_theme: &iced::Theme| iced::widget::text::Style {
+                    color: Some(Color::from_rgba(0.5, 0.5, 0.5, 1.0)),
+                }),
+        )
+        .width(Length::Fill)
+        .center_x(Length::Fill);
 
-        let or_text = text("or")
-            .size(13)
-            .style(|_theme: &iced::Theme| iced::widget::text::Style {
+        let or_text = container(text("or").size(13).center().style(|_theme: &iced::Theme| {
+            iced::widget::text::Style {
                 color: Some(Color::from_rgba(0.5, 0.5, 0.5, 1.0)),
-            });
+            }
+        }))
+        .width(Length::Fill)
+        .center_x(Length::Fill);
 
         let action_content = column![hotkey_text, or_text, capture_btn]
-            .spacing(8)
-            .align_x(Alignment::Center);
+            .spacing(12)
+            .align_x(Alignment::Center)
+            .width(Length::Fill);
 
         let action_panel = container(action_content)
-            .padding([24, 32])
+            .padding([28, 32])
             .width(Length::Fill)
-            .align_x(Alignment::Center)
+            .center_x(Length::Fill)
+            .center_y(Length::Shrink)
             .style(|_theme| iced::widget::container::Style {
                 background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.3))),
                 border: iced::Border {
@@ -1053,7 +1062,6 @@ impl AppOrchestrator {
             });
 
         let content = column![
-            Space::new().height(Length::Fill),
             header_section,
             Space::new().height(Length::Fixed(32.0)),
             action_panel,
@@ -1061,7 +1069,6 @@ impl AppOrchestrator {
             status_indicator,
             Space::new().height(Length::Fixed(24.0)),
             footer_panel,
-            Space::new().height(Length::Fill),
         ]
         .spacing(0)
         .padding(32)
