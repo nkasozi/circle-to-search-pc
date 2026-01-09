@@ -91,6 +91,24 @@ graph TB
 
 **Note**: Release binaries bundle Tesseract data files, so end users don't need to install Tesseract separately.
 
+### Quick Start (macOS)
+
+```bash
+git clone https://github.com/nkasozi/circle-to-search-pc.git
+cd circle-to-search-pc
+./download-tessdata.sh
+./create-macos-bundle.sh
+cp -r "target/release/Circle to Search.app" /Applications/
+```
+
+**First Launch**: macOS Gatekeeper blocks apps that aren't signed with an Apple Developer certificate ($99/year). Since this is an open-source project built from source, you'll need to manually approve it:
+
+1. Right-click (or Control+click) on "Circle to Search" in Applications
+2. Select "Open" from the context menu
+3. Click "Open" in the warning dialog
+
+After the first launch, it will open normally from Spotlight or Applications.
+
 ### Building
 
 First, download the Tesseract language data:
