@@ -1400,28 +1400,44 @@ impl AppOrchestrator {
     ) -> Task<OrchestratorMessage> {
         log::info!("[ORCHESTRATOR] Copying image to clipboard");
 
-        Task::future(async move {
-            match crate::infrastructure::utils::copy_image_to_clipboard(
-                &buffer.raw_data,
-                buffer.width,
-                buffer.height,
-            ) {
-                Ok(()) => {
-                    log::info!("[ORCHESTRATOR] Image copied to clipboard successfully");
-                    OrchestratorMessage::InteractiveOcrMessage(
-                        window_id,
-                        crate::presentation::InteractiveOcrMessage::CopyImageSuccess,
-                    )
+        Task::batch(vec![
+            Task::done(OrchestratorMessage::InteractiveOcrMessage(
+                window_id,
+                crate::presentation::InteractiveOcrMessage::CopyImagePreparing,
+            )),
+            Task::future(async move {
+                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                OrchestratorMessage::InteractiveOcrMessage(
+                    window_id,
+                    crate::presentation::InteractiveOcrMessage::CopyImageCopying,
+                )
+            }),
+            Task::future(async move {
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                match crate::infrastructure::utils::copy_image_to_clipboard(
+                    &buffer.raw_data,
+                    buffer.width,
+                    buffer.height,
+                ) {
+                    Ok(()) => {
+                        log::info!("[ORCHESTRATOR] Image copied to clipboard successfully");
+                        OrchestratorMessage::InteractiveOcrMessage(
+                            window_id,
+                            crate::presentation::InteractiveOcrMessage::CopyImageSuccess,
+                        )
+                    }
+                    Err(e) => {
+                        log::error!("[ORCHESTRATOR] Failed to copy image to clipboard: {}", e);
+                        OrchestratorMessage::InteractiveOcrMessage(
+                            window_id,
+                            crate::presentation::InteractiveOcrMessage::CopyImageFailed(
+                                e.to_string(),
+                            ),
+                        )
+                    }
                 }
-                Err(e) => {
-                    log::error!("[ORCHESTRATOR] Failed to copy image to clipboard: {}", e);
-                    OrchestratorMessage::InteractiveOcrMessage(
-                        window_id,
-                        crate::presentation::InteractiveOcrMessage::CopyImageFailed(e.to_string()),
-                    )
-                }
-            }
-        })
+            }),
+        ])
     }
 
     fn handle_save_image_to_file(
@@ -1432,29 +1448,43 @@ impl AppOrchestrator {
         log::info!("[ORCHESTRATOR] Saving image to file");
         let save_location = self.settings.screenshot_save_location.clone();
 
-        Task::future(async move {
-            match crate::infrastructure::utils::save_image_to_file(
-                &buffer.raw_data,
-                buffer.width,
-                buffer.height,
-                &save_location,
-            ) {
-                Ok(path) => {
-                    log::info!("[ORCHESTRATOR] Image saved successfully to: {}", path);
-                    OrchestratorMessage::InteractiveOcrMessage(
-                        window_id,
-                        crate::presentation::InteractiveOcrMessage::SaveSuccess(path),
-                    )
+        Task::batch(vec![
+            Task::done(OrchestratorMessage::InteractiveOcrMessage(
+                window_id,
+                crate::presentation::InteractiveOcrMessage::SaveImagePreparing,
+            )),
+            Task::future(async move {
+                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                OrchestratorMessage::InteractiveOcrMessage(
+                    window_id,
+                    crate::presentation::InteractiveOcrMessage::SaveImageSaving,
+                )
+            }),
+            Task::future(async move {
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                match crate::infrastructure::utils::save_image_to_file(
+                    &buffer.raw_data,
+                    buffer.width,
+                    buffer.height,
+                    &save_location,
+                ) {
+                    Ok(path) => {
+                        log::info!("[ORCHESTRATOR] Image saved successfully to: {}", path);
+                        OrchestratorMessage::InteractiveOcrMessage(
+                            window_id,
+                            crate::presentation::InteractiveOcrMessage::SaveSuccess(path),
+                        )
+                    }
+                    Err(e) => {
+                        log::error!("[ORCHESTRATOR] Failed to save image: {}", e);
+                        OrchestratorMessage::InteractiveOcrMessage(
+                            window_id,
+                            crate::presentation::InteractiveOcrMessage::SaveFailed(e.to_string()),
+                        )
+                    }
                 }
-                Err(e) => {
-                    log::error!("[ORCHESTRATOR] Failed to save image: {}", e);
-                    OrchestratorMessage::InteractiveOcrMessage(
-                        window_id,
-                        crate::presentation::InteractiveOcrMessage::SaveFailed(e.to_string()),
-                    )
-                }
-            }
-        })
+            }),
+        ])
     }
 }
 

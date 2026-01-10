@@ -22,6 +22,8 @@ pub enum CopyState {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ImageCopyState {
     Idle,
+    Preparing,
+    Copying,
     Success,
     Failed(String),
 }
@@ -29,6 +31,8 @@ pub enum ImageCopyState {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SaveState {
     Idle,
+    Preparing,
+    Saving,
     Success(String),
     Failed(String),
 }
@@ -95,7 +99,11 @@ pub enum InteractiveOcrMessage {
     UpdateDrawing(Point),
     EndDrawing,
     CopyImageToClipboard,
+    CopyImagePreparing,
+    CopyImageCopying,
     SaveImageToFile,
+    SaveImagePreparing,
+    SaveImageSaving,
     Recrop,
     ToggleDrawMode,
     SetDrawColor(Color),
@@ -300,7 +308,13 @@ impl InteractiveOcrView {
                 self.search_state = SearchState::Idle;
             }
             InteractiveOcrMessage::SpinnerTick => {
-                if matches!(self.search_state, SearchState::UploadingImage) {
+                if matches!(self.search_state, SearchState::UploadingImage)
+                    || matches!(
+                        self.image_copy_state,
+                        ImageCopyState::Preparing | ImageCopyState::Copying
+                    )
+                    || matches!(self.save_state, SaveState::Preparing | SaveState::Saving)
+                {
                     self.spinner_frame = (self.spinner_frame + 1) % 8;
                 }
             }
@@ -357,6 +371,22 @@ impl InteractiveOcrView {
             InteractiveOcrMessage::CopyImageToClipboard
             | InteractiveOcrMessage::SaveImageToFile
             | InteractiveOcrMessage::Recrop => {}
+            InteractiveOcrMessage::CopyImagePreparing => {
+                log::debug!("[INTERACTIVE_OCR] Preparing to copy image");
+                self.image_copy_state = ImageCopyState::Preparing;
+            }
+            InteractiveOcrMessage::CopyImageCopying => {
+                log::debug!("[INTERACTIVE_OCR] Copying image to clipboard");
+                self.image_copy_state = ImageCopyState::Copying;
+            }
+            InteractiveOcrMessage::SaveImagePreparing => {
+                log::debug!("[INTERACTIVE_OCR] Preparing to save image");
+                self.save_state = SaveState::Preparing;
+            }
+            InteractiveOcrMessage::SaveImageSaving => {
+                log::debug!("[INTERACTIVE_OCR] Saving image to file");
+                self.save_state = SaveState::Saving;
+            }
             InteractiveOcrMessage::ToggleDrawMode => {
                 self.draw_mode_enabled = !self.draw_mode_enabled;
                 log::info!(
@@ -476,7 +506,29 @@ impl InteractiveOcrView {
 
         let mut layers: Vec<Element<'_, InteractiveOcrMessage>> = vec![image_layer.into()];
 
-        let status_text = if self.draw_mode_enabled {
+        let status_text = if matches!(self.save_state, SaveState::Preparing) {
+            "⏳ Preparing to save image...".to_string()
+        } else if matches!(self.save_state, SaveState::Saving) {
+            "💾 Saving image to file...".to_string()
+        } else if let SaveState::Success(ref path) = self.save_state {
+            format!("✅ Saved to {}", path.split('/').last().unwrap_or(path))
+        } else if let SaveState::Failed(ref err) = self.save_state {
+            format!("❌ Save failed: {}", err)
+        } else if matches!(self.image_copy_state, ImageCopyState::Preparing) {
+            "⏳ Preparing image...".to_string()
+        } else if matches!(self.image_copy_state, ImageCopyState::Copying) {
+            "📋 Copying to clipboard...".to_string()
+        } else if matches!(self.image_copy_state, ImageCopyState::Success) {
+            "✅ Image copied to clipboard".to_string()
+        } else if let ImageCopyState::Failed(ref err) = self.image_copy_state {
+            format!("❌ Copy failed: {}", err)
+        } else if matches!(self.search_state, SearchState::UploadingImage) {
+            "🔍 Uploading image for search...".to_string()
+        } else if matches!(self.search_state, SearchState::Completed) {
+            "✅ Search completed".to_string()
+        } else if let SearchState::Failed(ref err) = self.search_state {
+            format!("❌ Search failed: {}", err)
+        } else if self.draw_mode_enabled {
             "🖊️ Draw Mode ON - Click and drag to draw".to_string()
         } else if let Some(ref result) = self.ocr_result {
             if self.selected_chars.is_empty() {
@@ -567,7 +619,7 @@ impl InteractiveOcrView {
                         Color::from_rgb(0.9, 0.3, 0.3),
                     ))
                 }
-                ImageCopyState::Idle => None,
+                ImageCopyState::Idle | ImageCopyState::Preparing | ImageCopyState::Copying => None,
             };
 
         if let Some(toast) = image_copy_toast {
@@ -612,7 +664,7 @@ impl InteractiveOcrView {
                     .align_x(Alignment::Center);
                 layers.push(toast_positioned.into());
             }
-            SaveState::Idle => {}
+            SaveState::Idle | SaveState::Preparing | SaveState::Saving => {}
         };
 
         if self.show_help_hint && !self.char_positions.is_empty() {
@@ -831,9 +883,18 @@ impl InteractiveOcrView {
                 .style(Self::tooltip_style),
         );
 
-        let copy_img_btn = button(text("📷").size(14))
-            .padding([8, 12])
-            .style(|_theme: &iced::Theme, status| {
+        let (copy_img_text, is_copying) = match &self.image_copy_state {
+            ImageCopyState::Idle => ("📷", false),
+            ImageCopyState::Preparing | ImageCopyState::Copying => {
+                let spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"];
+                (spinner_chars[self.spinner_frame], true)
+            }
+            ImageCopyState::Success => ("✅", true),
+            ImageCopyState::Failed(_) => ("❌", true),
+        };
+
+        let mut copy_img_btn = button(text(copy_img_text).size(14)).padding([8, 12]).style(
+            |_theme: &iced::Theme, status| {
                 let bg = match status {
                     button::Status::Hovered => Color::from_rgba(0.3, 0.3, 0.3, 0.95),
                     button::Status::Pressed => Color::from_rgba(0.2, 0.2, 0.2, 0.95),
@@ -850,8 +911,11 @@ impl InteractiveOcrView {
                     shadow: Shadow::default(),
                     snap: false,
                 }
-            })
-            .on_press(InteractiveOcrMessage::CopyImageToClipboard);
+            },
+        );
+        if !is_copying {
+            copy_img_btn = copy_img_btn.on_press(InteractiveOcrMessage::CopyImageToClipboard);
+        }
         action_row = action_row.push(
             tooltip(
                 copy_img_btn,
@@ -861,9 +925,18 @@ impl InteractiveOcrView {
             .style(Self::tooltip_style),
         );
 
-        let save_btn = button(text("💾").size(14))
-            .padding([8, 12])
-            .style(|_theme: &iced::Theme, status| {
+        let (save_text, is_saving) = match &self.save_state {
+            SaveState::Idle => ("💾", false),
+            SaveState::Preparing | SaveState::Saving => {
+                let spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"];
+                (spinner_chars[self.spinner_frame], true)
+            }
+            SaveState::Success(_) => ("✅", true),
+            SaveState::Failed(_) => ("❌", true),
+        };
+
+        let mut save_btn = button(text(save_text).size(14)).padding([8, 12]).style(
+            |_theme: &iced::Theme, status| {
                 let bg = match status {
                     button::Status::Hovered => Color::from_rgba(0.2, 0.6, 0.3, 0.95),
                     button::Status::Pressed => Color::from_rgba(0.1, 0.5, 0.2, 0.95),
@@ -880,8 +953,11 @@ impl InteractiveOcrView {
                     shadow: Shadow::default(),
                     snap: false,
                 }
-            })
-            .on_press(InteractiveOcrMessage::SaveImageToFile);
+            },
+        );
+        if !is_saving {
+            save_btn = save_btn.on_press(InteractiveOcrMessage::SaveImageToFile);
+        }
         action_row = action_row.push(
             tooltip(save_btn, "Save Image to File", tooltip::Position::Top)
                 .style(Self::tooltip_style),

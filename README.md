@@ -23,6 +23,28 @@ Circle to Search PC provides:
 - **Reverse Image Search**: Upload selected regions to perform Google Lens searches
 - **Seamless Integration**: Works across all applications without manual file management
 
+## Screenshots
+
+### Main Window
+The system tray menu for quick access to app features.
+
+![Main Window](screenshots/main-window.png)
+
+### Freeform Capture
+Select any region of your screen with an intuitive click-and-drag interface.
+
+![Freeform Capture](screenshots/freeform-capture.png)
+
+### OCR Results
+Extract and interact with text from captured regions.
+
+![OCR Results](screenshots/ocr-results.png)
+
+### Google Lens Search
+Perform reverse image searches directly from captured regions.
+
+![Google Search Results](screenshots/google-results.png)
+
 ## Architecture
 
 This application follows **Hexagonal Architecture** (Ports and Adapters pattern) to maintain clean separation between business logic and external dependencies.
