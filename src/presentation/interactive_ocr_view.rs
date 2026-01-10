@@ -1127,8 +1127,19 @@ impl InteractiveOcrView {
     }
 
     fn build_help_hint(&self) -> Element<'_, InteractiveOcrMessage> {
+        let select_all_shortcut = if cfg!(target_os = "macos") {
+            "⌘A"
+        } else {
+            "Ctrl+A"
+        };
+
+        let hint_text = format!(
+            "💡 Click and drag on text to select • {} to select all • Esc to deselect",
+            select_all_shortcut
+        );
+
         let hint_content = row![
-            text("💡 Click and drag on text to select • ⌘A to select all • Esc to deselect")
+            text(hint_text)
                 .size(13)
                 .style(|_theme: &iced::Theme| iced::widget::text::Style {
                     color: Some(Color::from_rgba(0.9, 0.9, 0.9, 0.95)),
