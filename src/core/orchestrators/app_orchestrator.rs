@@ -1437,6 +1437,13 @@ impl AppOrchestrator {
                     }
                 }
             }),
+            Task::future(async move {
+                tokio::time::sleep(tokio::time::Duration::from_millis(2600)).await;
+                OrchestratorMessage::InteractiveOcrMessage(
+                    window_id,
+                    crate::presentation::InteractiveOcrMessage::HideToast,
+                )
+            }),
         ])
     }
 
@@ -1483,6 +1490,13 @@ impl AppOrchestrator {
                         )
                     }
                 }
+            }),
+            Task::future(async move {
+                tokio::time::sleep(tokio::time::Duration::from_millis(2600)).await;
+                OrchestratorMessage::InteractiveOcrMessage(
+                    window_id,
+                    crate::presentation::InteractiveOcrMessage::HideToast,
+                )
             }),
         ])
     }

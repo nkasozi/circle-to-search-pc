@@ -26,21 +26,25 @@ Circle to Search PC provides:
 ## Screenshots
 
 ### Main Window
+
 The system tray menu for quick access to app features.
 
 ![Main Window](screenshots/main-window.png)
 
 ### Freeform Capture
+
 Select any region of your screen with an intuitive click-and-drag interface.
 
 ![Freeform Capture](screenshots/freeform-capture.png)
 
 ### OCR Results
+
 Extract and interact with text from captured regions.
 
 ![OCR Results](screenshots/ocr-results.png)
 
 ### Google Lens Search
+
 Perform reverse image searches directly from captured regions.
 
 ![Google Search Results](screenshots/google-results.png)

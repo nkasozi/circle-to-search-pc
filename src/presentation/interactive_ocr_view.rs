@@ -321,6 +321,12 @@ impl InteractiveOcrView {
             InteractiveOcrMessage::HideToast => {
                 self.copy_state = CopyState::Idle;
                 self.image_copy_state = ImageCopyState::Idle;
+                if matches!(
+                    self.save_state,
+                    SaveState::Success(_) | SaveState::Failed(_)
+                ) {
+                    self.save_state = SaveState::Idle;
+                }
             }
             InteractiveOcrMessage::CopyImageSuccess => {
                 log::info!("[INTERACTIVE_OCR] Image copied to clipboard successfully");
@@ -533,7 +539,7 @@ impl InteractiveOcrView {
         } else if let Some(ref result) = self.ocr_result {
             if self.selected_chars.is_empty() {
                 format!(
-                    "Detected {} words - Click to select text",
+                    "✅ Detected {} words - Click to select text",
                     result.text_blocks.len()
                 )
             } else {
@@ -574,11 +580,11 @@ impl InteractiveOcrView {
             .width(Length::Fill)
             .padding(iced::Padding {
                 top: 16.0,
-                right: 16.0,
+                right: 0.0,
                 bottom: 0.0,
                 left: 0.0,
             })
-            .align_x(Alignment::End);
+            .align_x(Alignment::Center);
 
         layers.push(status_positioned.into());
 
