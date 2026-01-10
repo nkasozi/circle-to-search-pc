@@ -322,7 +322,6 @@ pub fn composite_drawings_on_image(
     draw_strokes: &[(Vec<(f32, f32)>, (f32, f32, f32, f32), f32)],
 ) -> Result<Vec<u8>, String> {
     use image::{Rgba, RgbaImage};
-    use imageproc::drawing::draw_line_segment_mut;
 
     let mut img = RgbaImage::from_raw(width, height, rgba_data.to_vec())
         .ok_or_else(|| "Failed to create image from raw data".to_string())?;
@@ -342,23 +341,59 @@ pub fn composite_drawings_on_image(
         for window in points.windows(2) {
             let (x1, y1) = window[0];
             let (x2, y2) = window[1];
+            draw_thick_line(&mut img, x1, y1, x2, y2, *stroke_width, color);
+        }
+    }
 
-            for offset_x in 0..(*stroke_width as i32) {
-                for offset_y in 0..(*stroke_width as i32) {
-                    let offset_dist =
-                        ((offset_x as f32).powi(2) + (offset_y as f32).powi(2)).sqrt();
-                    if offset_dist <= *stroke_width / 2.0 {
-                        draw_line_segment_mut(
-                            &mut img,
-                            (x1 + offset_x as f32, y1 + offset_y as f32),
-                            (x2 + offset_x as f32, y2 + offset_y as f32),
-                            color,
-                        );
+    Ok(img.into_raw())
+}
+
+fn draw_thick_line(
+    img: &mut image::RgbaImage,
+    x0: f32,
+    y0: f32,
+    x1: f32,
+    y1: f32,
+    thickness: f32,
+    color: image::Rgba<u8>,
+) {
+    let dx = x1 - x0;
+    let dy = y1 - y0;
+    let length = (dx * dx + dy * dy).sqrt();
+
+    if length < 0.001 {
+        draw_filled_circle(img, x0 as i32, y0 as i32, (thickness / 2.0) as i32, color);
+        return;
+    }
+
+    let steps = (length * 2.0) as i32;
+    for i in 0..=steps {
+        let t = i as f32 / steps as f32;
+        let cx = x0 + t * dx;
+        let cy = y0 + t * dy;
+        draw_filled_circle(img, cx as i32, cy as i32, (thickness / 2.0) as i32, color);
+    }
+
+    fn draw_filled_circle(
+        img: &mut image::RgbaImage,
+        cx: i32,
+        cy: i32,
+        radius: i32,
+        color: image::Rgba<u8>,
+    ) {
+        let (width, height) = img.dimensions();
+        let radius = radius.max(1);
+
+        for dy in -radius..=radius {
+            for dx in -radius..=radius {
+                if dx * dx + dy * dy <= radius * radius {
+                    let px = cx + dx;
+                    let py = cy + dy;
+                    if px >= 0 && py >= 0 && (px as u32) < width && (py as u32) < height {
+                        img.put_pixel(px as u32, py as u32, color);
                     }
                 }
             }
         }
     }
-
-    Ok(img.into_raw())
 }
