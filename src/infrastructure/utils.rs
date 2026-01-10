@@ -265,7 +265,10 @@ pub fn save_image_to_file(
         save_location
     );
 
-    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
     let filename = format!("screenshot_{}.png", timestamp);
     let save_path = PathBuf::from(save_location).join(&filename);
 
