@@ -76,8 +76,8 @@ pub enum OrchestratorMessage {
     OpenOnboarding,
     OnboardingMsg(Id, OnboardingMessage),
     EnableKeyboardListener,
-    CopyImageToClipboard(Id, CaptureBuffer),
-    SaveImageToFile(Id, CaptureBuffer),
+    CopyImageToClipboard(Id, CaptureBuffer, Vec<crate::presentation::DrawStroke>),
+    SaveImageToFile(Id, CaptureBuffer, Vec<crate::presentation::DrawStroke>),
 }
 
 impl std::fmt::Debug for OrchestratorMessage {
@@ -126,10 +126,10 @@ impl std::fmt::Debug for OrchestratorMessage {
             OrchestratorMessage::OpenOnboarding => write!(f, "OpenOnboarding"),
             OrchestratorMessage::OnboardingMsg(id, _) => write!(f, "OnboardingMsg({:?})", id),
             OrchestratorMessage::EnableKeyboardListener => write!(f, "EnableKeyboardListener"),
-            OrchestratorMessage::CopyImageToClipboard(id, _) => {
+            OrchestratorMessage::CopyImageToClipboard(id, _, _) => {
                 write!(f, "CopyImageToClipboard({:?})", id)
             }
-            OrchestratorMessage::SaveImageToFile(id, _) => {
+            OrchestratorMessage::SaveImageToFile(id, _, _) => {
                 write!(f, "SaveImageToFile({:?})", id)
             }
         }
@@ -320,11 +320,11 @@ impl AppOrchestrator {
             OrchestratorMessage::EnableKeyboardListener => {
                 log::debug!("[ORCHESTRATOR] EnableKeyboardListener handled at app level");
             }
-            OrchestratorMessage::CopyImageToClipboard(window_id, buffer) => {
-                return self.handle_copy_image_to_clipboard(window_id, buffer);
+            OrchestratorMessage::CopyImageToClipboard(window_id, buffer, draw_strokes) => {
+                return self.handle_copy_image_to_clipboard(window_id, buffer, draw_strokes);
             }
-            OrchestratorMessage::SaveImageToFile(window_id, buffer) => {
-                return self.handle_save_image_to_file(window_id, buffer);
+            OrchestratorMessage::SaveImageToFile(window_id, buffer, draw_strokes) => {
+                return self.handle_save_image_to_file(window_id, buffer, draw_strokes);
             }
         }
 
@@ -749,14 +749,23 @@ impl AppOrchestrator {
             crate::presentation::InteractiveOcrMessage::CopyImageToClipboard => {
                 if let Some(AppWindow::InteractiveOcr(view)) = self.windows.get(&window_id) {
                     let buffer = view.get_capture_buffer().clone();
-                    return self
-                        .update(OrchestratorMessage::CopyImageToClipboard(window_id, buffer));
+                    let draw_strokes = view.get_draw_strokes();
+                    return self.update(OrchestratorMessage::CopyImageToClipboard(
+                        window_id,
+                        buffer,
+                        draw_strokes,
+                    ));
                 }
             }
             crate::presentation::InteractiveOcrMessage::SaveImageToFile => {
                 if let Some(AppWindow::InteractiveOcr(view)) = self.windows.get(&window_id) {
                     let buffer = view.get_capture_buffer().clone();
-                    return self.update(OrchestratorMessage::SaveImageToFile(window_id, buffer));
+                    let draw_strokes = view.get_draw_strokes();
+                    return self.update(OrchestratorMessage::SaveImageToFile(
+                        window_id,
+                        buffer,
+                        draw_strokes,
+                    ));
                 }
             }
             crate::presentation::InteractiveOcrMessage::Recrop => {
@@ -1397,8 +1406,12 @@ impl AppOrchestrator {
         &mut self,
         window_id: Id,
         buffer: CaptureBuffer,
+        draw_strokes: Vec<crate::presentation::DrawStroke>,
     ) -> Task<OrchestratorMessage> {
-        log::info!("[ORCHESTRATOR] Copying image to clipboard");
+        log::info!(
+            "[ORCHESTRATOR] Copying image to clipboard with {} drawings",
+            draw_strokes.len()
+        );
 
         Task::batch(vec![
             Task::done(OrchestratorMessage::InteractiveOcrMessage(
@@ -1414,8 +1427,46 @@ impl AppOrchestrator {
             }),
             Task::future(async move {
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+                let mut rgba_data = buffer.raw_data.clone();
+
+                if !draw_strokes.is_empty() {
+                    let converted_strokes: Vec<_> = draw_strokes
+                        .iter()
+                        .map(|stroke| {
+                            let points: Vec<(f32, f32)> =
+                                stroke.points.iter().map(|p| (p.x, p.y)).collect();
+                            let color = (
+                                stroke.color.r,
+                                stroke.color.g,
+                                stroke.color.b,
+                                stroke.color.a,
+                            );
+                            (points, color, stroke.width)
+                        })
+                        .collect();
+
+                    match crate::infrastructure::utils::composite_drawings_on_image(
+                        &rgba_data,
+                        buffer.width,
+                        buffer.height,
+                        &converted_strokes,
+                    ) {
+                        Ok(composited_data) => {
+                            rgba_data = composited_data;
+                            log::info!(
+                                "[ORCHESTRATOR] Successfully composited {} drawings onto image",
+                                draw_strokes.len()
+                            );
+                        }
+                        Err(e) => {
+                            log::warn!("[ORCHESTRATOR] Failed to composite drawings: {}, continuing with original image", e);
+                        }
+                    }
+                }
+
                 match crate::infrastructure::utils::copy_image_to_clipboard(
-                    &buffer.raw_data,
+                    &rgba_data,
                     buffer.width,
                     buffer.height,
                 ) {
@@ -1451,8 +1502,12 @@ impl AppOrchestrator {
         &mut self,
         window_id: Id,
         buffer: CaptureBuffer,
+        draw_strokes: Vec<crate::presentation::DrawStroke>,
     ) -> Task<OrchestratorMessage> {
-        log::info!("[ORCHESTRATOR] Saving image to file");
+        log::info!(
+            "[ORCHESTRATOR] Saving image to file with {} drawings",
+            draw_strokes.len()
+        );
         let save_location = self.settings.screenshot_save_location.clone();
 
         Task::batch(vec![
@@ -1469,8 +1524,46 @@ impl AppOrchestrator {
             }),
             Task::future(async move {
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+                let mut rgba_data = buffer.raw_data.clone();
+
+                if !draw_strokes.is_empty() {
+                    let converted_strokes: Vec<_> = draw_strokes
+                        .iter()
+                        .map(|stroke| {
+                            let points: Vec<(f32, f32)> =
+                                stroke.points.iter().map(|p| (p.x, p.y)).collect();
+                            let color = (
+                                stroke.color.r,
+                                stroke.color.g,
+                                stroke.color.b,
+                                stroke.color.a,
+                            );
+                            (points, color, stroke.width)
+                        })
+                        .collect();
+
+                    match crate::infrastructure::utils::composite_drawings_on_image(
+                        &rgba_data,
+                        buffer.width,
+                        buffer.height,
+                        &converted_strokes,
+                    ) {
+                        Ok(composited_data) => {
+                            rgba_data = composited_data;
+                            log::info!(
+                                "[ORCHESTRATOR] Successfully composited {} drawings onto image",
+                                draw_strokes.len()
+                            );
+                        }
+                        Err(e) => {
+                            log::warn!("[ORCHESTRATOR] Failed to composite drawings: {}, continuing with original image", e);
+                        }
+                    }
+                }
+
                 match crate::infrastructure::utils::save_image_to_file(
-                    &buffer.raw_data,
+                    &rgba_data,
                     buffer.width,
                     buffer.height,
                     &save_location,

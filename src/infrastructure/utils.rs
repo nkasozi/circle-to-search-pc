@@ -311,3 +311,51 @@ fn convert_rgba_to_png(rgba_data: &[u8], width: u32, height: u32) -> Result<Vec<
 
     Ok(png_data)
 }
+
+pub fn composite_drawings_on_image(
+    rgba_data: &[u8],
+    width: u32,
+    height: u32,
+    draw_strokes: &[(Vec<(f32, f32)>, (f32, f32, f32, f32), f32)],
+) -> Result<Vec<u8>, String> {
+    use image::{Rgba, RgbaImage};
+    use imageproc::drawing::draw_line_segment_mut;
+
+    let mut img = RgbaImage::from_raw(width, height, rgba_data.to_vec())
+        .ok_or_else(|| "Failed to create image from raw data".to_string())?;
+
+    for (points, (r, g, b, a), stroke_width) in draw_strokes {
+        if points.len() < 2 {
+            continue;
+        }
+
+        let color = Rgba([
+            (r * 255.0) as u8,
+            (g * 255.0) as u8,
+            (b * 255.0) as u8,
+            (a * 255.0) as u8,
+        ]);
+
+        for window in points.windows(2) {
+            let (x1, y1) = window[0];
+            let (x2, y2) = window[1];
+
+            for offset_x in 0..(*stroke_width as i32) {
+                for offset_y in 0..(*stroke_width as i32) {
+                    let offset_dist =
+                        ((offset_x as f32).powi(2) + (offset_y as f32).powi(2)).sqrt();
+                    if offset_dist <= *stroke_width / 2.0 {
+                        draw_line_segment_mut(
+                            &mut img,
+                            (x1 + offset_x as f32, y1 + offset_y as f32),
+                            (x2 + offset_x as f32, y2 + offset_y as f32),
+                            color,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(img.into_raw())
+}
