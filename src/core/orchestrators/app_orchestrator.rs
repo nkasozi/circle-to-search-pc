@@ -481,7 +481,10 @@ impl AppOrchestrator {
 
     fn handle_capture_error(&mut self, error_msg: String) -> Task<OrchestratorMessage> {
         log::error!("[ORCHESTRATOR] Capture error: {}", error_msg);
-        self.status = error_msg;
+
+        let user_friendly_message = build_capture_error_message(&error_msg);
+        self.status = user_friendly_message;
+
         Task::none()
     }
 
@@ -1595,6 +1598,64 @@ impl AppOrchestrator {
     }
 }
 
+fn build_capture_error_message(error_msg: &str) -> String {
+    #[cfg(target_os = "linux")]
+    let platform = "linux";
+    #[cfg(target_os = "macos")]
+    let platform = "macos";
+    #[cfg(target_os = "windows")]
+    let platform = "windows";
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    let platform = "unknown";
+
+    build_capture_error_message_for_platform(error_msg, platform)
+}
+
+fn build_capture_error_message_for_platform(error_msg: &str, platform: &str) -> String {
+    let error_lower = error_msg.to_lowercase();
+
+    match platform {
+        "linux" => {
+            let is_permission_error = error_lower.contains("permission")
+                || error_lower.contains("access")
+                || error_lower.contains("denied")
+                || error_lower.contains("pipewire")
+                || error_lower.contains("portal");
+
+            if is_permission_error {
+                return format!(
+                    "Screen capture failed: {}\n\n\
+                    On Linux (Wayland), screen capture requires:\n\
+                    • PipeWire and xdg-desktop-portal installed\n\
+                    • A portal dialog will appear - click 'Share' to allow\n\n\
+                    Try: sudo apt install pipewire xdg-desktop-portal",
+                    error_msg
+                );
+            }
+        }
+        "macos" => {
+            let is_permission_error = error_lower.contains("permission")
+                || error_lower.contains("access")
+                || error_lower.contains("denied");
+
+            if is_permission_error {
+                return format!(
+                    "Screen capture failed: {}\n\n\
+                    Please grant Screen Recording permission:\n\
+                    System Settings → Privacy & Security → Screen Recording",
+                    error_msg
+                );
+            }
+        }
+        _ => {}
+    }
+
+    format!(
+        "Capture failed: {}. Try closing other instances.",
+        error_msg
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1672,7 +1733,96 @@ mod tests {
 
         let _ = orchestrator.handle_capture_error(error_message.clone());
 
-        assert_eq!(orchestrator.status, error_message);
+        assert!(orchestrator.status.contains("Test error"));
+        assert!(orchestrator.status.contains("Capture failed"));
+    }
+
+    #[test]
+    fn test_build_capture_error_message_linux_permission_error() {
+        let error = "Access denied to screen capture";
+        let result = build_capture_error_message_for_platform(error, "linux");
+
+        assert!(result.contains("Screen capture failed"));
+        assert!(result.contains("PipeWire"));
+        assert!(result.contains("xdg-desktop-portal"));
+        assert!(result.contains("sudo apt install"));
+    }
+
+    #[test]
+    fn test_build_capture_error_message_linux_pipewire_error() {
+        let error = "PipeWire connection failed";
+        let result = build_capture_error_message_for_platform(error, "linux");
+
+        assert!(result.contains("Screen capture failed"));
+        assert!(result.contains("PipeWire"));
+    }
+
+    #[test]
+    fn test_build_capture_error_message_linux_portal_error() {
+        let error = "Portal request denied";
+        let result = build_capture_error_message_for_platform(error, "linux");
+
+        assert!(result.contains("Screen capture failed"));
+        assert!(result.contains("xdg-desktop-portal"));
+    }
+
+    #[test]
+    fn test_build_capture_error_message_linux_generic_error() {
+        let error = "Unknown capture error";
+        let result = build_capture_error_message_for_platform(error, "linux");
+
+        assert!(result.contains("Capture failed"));
+        assert!(result.contains("Try closing other instances"));
+        assert!(!result.contains("PipeWire"));
+    }
+
+    #[test]
+    fn test_build_capture_error_message_macos_permission_error() {
+        let error = "Permission denied for screen recording";
+        let result = build_capture_error_message_for_platform(error, "macos");
+
+        assert!(result.contains("Screen capture failed"));
+        assert!(result.contains("Screen Recording permission"));
+        assert!(result.contains("System Settings"));
+    }
+
+    #[test]
+    fn test_build_capture_error_message_macos_access_error() {
+        let error = "Access to screen not granted";
+        let result = build_capture_error_message_for_platform(error, "macos");
+
+        assert!(result.contains("Screen capture failed"));
+        assert!(result.contains("Privacy & Security"));
+    }
+
+    #[test]
+    fn test_build_capture_error_message_macos_generic_error() {
+        let error = "Monitor not found";
+        let result = build_capture_error_message_for_platform(error, "macos");
+
+        assert!(result.contains("Capture failed"));
+        assert!(result.contains("Try closing other instances"));
+        assert!(!result.contains("System Settings"));
+    }
+
+    #[test]
+    fn test_build_capture_error_message_windows_always_generic() {
+        let error = "Permission denied";
+        let result = build_capture_error_message_for_platform(error, "windows");
+
+        assert!(result.contains("Capture failed"));
+        assert!(result.contains("Try closing other instances"));
+        assert!(!result.contains("PipeWire"));
+        assert!(!result.contains("System Settings"));
+    }
+
+    #[test]
+    fn test_build_capture_error_message_unknown_platform() {
+        let error = "Some error";
+        let result = build_capture_error_message_for_platform(error, "freebsd");
+
+        assert!(result.contains("Capture failed"));
+        assert!(result.contains("Try closing other instances"));
     }
 
     #[test]
