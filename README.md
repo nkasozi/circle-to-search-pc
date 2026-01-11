@@ -1,6 +1,6 @@
-# Circle to Search PC
+# Circle to Search MacOs/Windows/Linux
 
-A desktop application that brings Google Lens-style "Circle to Search" functionality to your PC. Select any region of your screen, extract text using OCR, or perform reverse image searches directly from your desktop.
+A desktop application that brings Google Lens-style "Circle to Search" functionality to your Mac or PC. Select any region of your screen, extract text using OCR, or perform reverse image searches directly from your desktop. Works on Macos, windows, linux
 
 ## The Problem
 
