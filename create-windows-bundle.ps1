@@ -18,9 +18,22 @@ if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
 Write-Host "  Cargo found" -ForegroundColor Green
 
 if (-not (Test-Path "tessdata/eng.traineddata")) {
-    Write-Host "ERROR: tessdata not found. Please run download-tessdata.sh first" -ForegroundColor Red
-    Write-Host "  (You can use Git Bash or WSL to run the shell script)" -ForegroundColor Yellow
-    exit 1
+    Write-Host "  tessdata not found, downloading..." -ForegroundColor Yellow
+    try {
+        if (Get-Command bash -ErrorAction SilentlyContinue) {
+            bash ./download-tessdata.sh
+        } else {
+            New-Item -ItemType Directory -Path "tessdata" -Force | Out-Null
+            Write-Host "  Downloading English language data..." -ForegroundColor Yellow
+            Invoke-WebRequest -Uri "https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata" -OutFile "tessdata/eng.traineddata"
+        }
+        if (-not (Test-Path "tessdata/eng.traineddata")) {
+            throw "Download failed"
+        }
+    } catch {
+        Write-Host "ERROR: Failed to download tessdata" -ForegroundColor Red
+        exit 1
+    }
 }
 Write-Host "  tessdata found" -ForegroundColor Green
 

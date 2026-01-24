@@ -10,6 +10,141 @@ use crate::core::models::{DetectedText, DetectedWord, OcrResult};
 
 const TRAINING_DATA: &[u8] = include_bytes!("../../tessdata/eng.traineddata");
 
+fn get_ocr_replacements() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("¬Æ", ""),
+        ("¬©", ""),
+        ("(|)", ""),
+        ("¬¢", "•"),
+        ("¬∑", "•"),
+        ("¬∏", "•"),
+        ("-¬†", "—"),
+        ("¬†", " "),
+        ("¬´", "'"),
+        ("¬ª", "'"),
+        ("¬∫", "'"),
+        ("¬º", "'"),
+        ("¬´¬´", "\""),
+        ("¬ª¬ª", "\""),
+        ("¬´¬ª", "\""),
+        ("``", "\""),
+        ("''", "\""),
+        ("~", "−"),
+        ("(t/\\)", "(↑/↓)"),
+        ("t/\\", "↑/↓"),
+        ("<->", "↔"),
+        ("->", "→"),
+        ("<-", "←"),
+        ("<=>", "⇔"),
+        ("=>", "⇒"),
+        ("<=", "⇐"),
+        (">>", "»"),
+        ("<<", "«"),
+        ("...", "…"),
+        ("(c)", "©"),
+        ("(C)", "©"),
+        ("(r)", "®"),
+        ("(R)", "®"),
+        ("(tm)", "™"),
+        ("(TM)", "™"),
+        ("+-", "±"),
+        ("+/-", "±"),
+        ("!=", "≠"),
+        ("/=", "≠"),
+        ("<=", "≤"),
+        (">=", "≥"),
+        ("~=", "≈"),
+        ("~~", "≈"),
+        ("inf", "∞"),
+        ("deg", "°"),
+        ("1/2", "½"),
+        ("1/4", "¼"),
+        ("3/4", "¾"),
+        ("1/3", "⅓"),
+        ("2/3", "⅔"),
+        ("sqrt", "√"),
+        ("cbrt", "∛"),
+        ("sum", "∑"),
+        ("prod", "∏"),
+        ("delta", "Δ"),
+        ("alpha", "α"),
+        ("beta", "β"),
+        ("gamma", "γ"),
+        ("theta", "θ"),
+        ("lambda", "λ"),
+        ("mu", "μ"),
+        ("pi", "π"),
+        ("sigma", "σ"),
+        ("omega", "ω"),
+        ("x^2", "x²"),
+        ("^2", "²"),
+        ("^3", "³"),
+        ("^n", "ⁿ"),
+        ("EUR", "€"),
+        ("GBP", "£"),
+        ("JPY", "¥"),
+        ("CNY", "¥"),
+        ("[x]", "☑"),
+        ("[ ]", "☐"),
+        ("[X]", "☑"),
+        ("[v]", "✓"),
+        ("[V]", "✓"),
+        ("(*)", "★"),
+        ("[*]", "★"),
+        ("<3", "♥"),
+        (":)", "☺"),
+        (":(", "☹"),
+        ("|>", "▶"),
+        ("<|", "◀"),
+        ("||", "⏸"),
+        ("[>", "▶"),
+        ("#S", "⌘S"),
+        ("#C", "⌘C"),
+        ("#D", "⌘D"),
+        ("#V", "⌘V"),
+        ("#Z", "⌘Z"),
+        ("#X", "⌘X"),
+        ("#A", "⌘A"),
+        ("#F", "⌘F"),
+        ("#W", "⌘W"),
+        ("#Q", "⌘Q"),
+        ("#N", "⌘N"),
+        ("#O", "⌘O"),
+        ("#P", "⌘P"),
+        ("#T", "⌘T"),
+        ("#R", "⌘R"),
+        ("#B", "⌘B"),
+        ("#I", "⌘I"),
+        ("#U", "⌘U"),
+        ("#K", "⌘K"),
+        ("#L", "⌘L"),
+        ("#G", "⌘G"),
+        ("#H", "⌘H"),
+        ("#M", "⌘M"),
+        ("#E", "⌘E"),
+        ("#J", "⌘J"),
+        ("Ctrl+", "⌃"),
+        ("Alt+", "⌥"),
+        ("Shift+", "⇧"),
+        ("Cmd+", "⌘"),
+        ("Tab", "⇥"),
+        ("Enter", "↵"),
+        ("Return", "↵"),
+        ("Esc", "⎋"),
+        ("Del", "⌫"),
+        ("Backspace", "⌫"),
+        ("Caps", "⇪"),
+    ]
+}
+
+fn cleanup_ocr_artifacts(text: &str) -> String {
+    let mut result = text.to_string();
+    for (pattern, replacement) in get_ocr_replacements() {
+        result = result.replace(pattern, replacement);
+    }
+    result.trim().to_string()
+}
+
 fn parse_bounds_from_debug(debug_str: &str) -> (f32, f32, f32, f32) {
     let numbers: Vec<f32> = debug_str
         .split(|c: char| !c.is_numeric() && c != '.' && c != '-')
@@ -119,9 +254,9 @@ impl OcrService for TesseractOcrService {
             for paragraph in &carea.paragraphs {
                 for line in &paragraph.lines {
                     for word in &line.words {
-                        let word_text = word.text.trim();
+                        let raw_word_text = word.text.trim();
 
-                        if word_text.is_empty() {
+                        if raw_word_text.is_empty() {
                             continue;
                         }
 
@@ -129,9 +264,14 @@ impl OcrService for TesseractOcrService {
                         if conf < 0.30 {
                             log::debug!(
                                 "[TESSERACT_OCR] Skipping low confidence word '{}' (conf: {:.2})",
-                                word_text,
+                                raw_word_text,
                                 conf * 100.0
                             );
+                            continue;
+                        }
+
+                        let word_text = cleanup_ocr_artifacts(raw_word_text);
+                        if word_text.is_empty() {
                             continue;
                         }
 
@@ -148,7 +288,7 @@ impl OcrService for TesseractOcrService {
                             conf * 100.0
                         );
 
-                        full_text.push_str(word_text);
+                        full_text.push_str(&word_text);
                         full_text.push(' ');
 
                         detected_texts.push(DetectedText::new(
@@ -193,5 +333,149 @@ mod tests {
         let result = TesseractOcrService::build();
 
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_cleanup_ocr_artifacts_removes_garbage_characters() {
+        assert_eq!(cleanup_ocr_artifacts("¬Æ test"), "test");
+        assert_eq!(cleanup_ocr_artifacts("¬© text"), "text");
+        assert_eq!(cleanup_ocr_artifacts("hello (|) world"), "hello  world");
+    }
+
+    #[test]
+    fn test_cleanup_ocr_artifacts_converts_bullets() {
+        assert_eq!(cleanup_ocr_artifacts("¬¢ item"), "• item");
+        assert_eq!(cleanup_ocr_artifacts("¬∑ bullet"), "• bullet");
+        assert_eq!(cleanup_ocr_artifacts("¬∏ point"), "• point");
+    }
+
+    #[test]
+    fn test_cleanup_ocr_artifacts_converts_quotes() {
+        assert_eq!(cleanup_ocr_artifacts("¬´hello¬ª"), "'hello'");
+        assert_eq!(cleanup_ocr_artifacts("``quoted''"), "\"quoted\"");
+    }
+
+    #[test]
+    fn test_cleanup_ocr_artifacts_converts_arrows() {
+        assert_eq!(cleanup_ocr_artifacts("go ->"), "go →");
+        assert_eq!(cleanup_ocr_artifacts("<- back"), "← back");
+        assert_eq!(cleanup_ocr_artifacts("<->"), "↔");
+        assert_eq!(cleanup_ocr_artifacts("=>"), "⇒");
+        assert_eq!(cleanup_ocr_artifacts("t/\\"), "↑/↓");
+    }
+
+    #[test]
+    fn test_cleanup_ocr_artifacts_converts_mac_shortcuts() {
+        assert_eq!(cleanup_ocr_artifacts("#C"), "⌘C");
+        assert_eq!(cleanup_ocr_artifacts("#V"), "⌘V");
+        assert_eq!(cleanup_ocr_artifacts("#S"), "⌘S");
+        assert_eq!(cleanup_ocr_artifacts("#Z"), "⌘Z");
+        assert_eq!(
+            cleanup_ocr_artifacts("Press #C to copy"),
+            "Press ⌘C to copy"
+        );
+    }
+
+    #[test]
+    fn test_cleanup_ocr_artifacts_converts_modifier_keys() {
+        assert_eq!(cleanup_ocr_artifacts("Ctrl+C"), "⌃C");
+        assert_eq!(cleanup_ocr_artifacts("Alt+Tab"), "⌥⇥");
+        assert_eq!(cleanup_ocr_artifacts("Shift+Enter"), "⇧↵");
+        assert_eq!(cleanup_ocr_artifacts("Cmd+Q"), "⌘Q");
+    }
+
+    #[test]
+    fn test_cleanup_ocr_artifacts_converts_special_keys() {
+        assert_eq!(cleanup_ocr_artifacts("Tab"), "⇥");
+        assert_eq!(cleanup_ocr_artifacts("Enter"), "↵");
+        assert_eq!(cleanup_ocr_artifacts("Esc"), "⎋");
+        assert_eq!(cleanup_ocr_artifacts("Del"), "⌫");
+        assert_eq!(cleanup_ocr_artifacts("Backspace"), "⌫");
+    }
+
+    #[test]
+    fn test_cleanup_ocr_artifacts_converts_math_symbols() {
+        assert_eq!(cleanup_ocr_artifacts("+-"), "±");
+        assert_eq!(cleanup_ocr_artifacts("!="), "≠");
+        assert_eq!(cleanup_ocr_artifacts("..."), "…");
+        assert_eq!(cleanup_ocr_artifacts("1/2"), "½");
+        assert_eq!(cleanup_ocr_artifacts("pi"), "π");
+    }
+
+    #[test]
+    fn test_cleanup_ocr_artifacts_converts_copyright_symbols() {
+        assert_eq!(cleanup_ocr_artifacts("(c)"), "©");
+        assert_eq!(cleanup_ocr_artifacts("(C)"), "©");
+        assert_eq!(cleanup_ocr_artifacts("(r)"), "®");
+        assert_eq!(cleanup_ocr_artifacts("(tm)"), "™");
+    }
+
+    #[test]
+    fn test_cleanup_ocr_artifacts_converts_checkboxes() {
+        assert_eq!(cleanup_ocr_artifacts("[x]"), "☑");
+        assert_eq!(cleanup_ocr_artifacts("[ ]"), "☐");
+        assert_eq!(cleanup_ocr_artifacts("[v]"), "✓");
+    }
+
+    #[test]
+    fn test_cleanup_ocr_artifacts_converts_currency() {
+        assert_eq!(cleanup_ocr_artifacts("EUR 100"), "€ 100");
+        assert_eq!(cleanup_ocr_artifacts("GBP 50"), "£ 50");
+        assert_eq!(cleanup_ocr_artifacts("JPY 1000"), "¥ 1000");
+    }
+
+    #[test]
+    fn test_cleanup_ocr_artifacts_trims_whitespace() {
+        assert_eq!(cleanup_ocr_artifacts("  hello  "), "hello");
+        assert_eq!(cleanup_ocr_artifacts("\ttest\n"), "test");
+    }
+
+    #[test]
+    fn test_cleanup_ocr_artifacts_handles_empty_string() {
+        assert_eq!(cleanup_ocr_artifacts(""), "");
+    }
+
+    #[test]
+    fn test_cleanup_ocr_artifacts_preserves_normal_text() {
+        assert_eq!(cleanup_ocr_artifacts("Hello World"), "Hello World");
+        assert_eq!(cleanup_ocr_artifacts("Test 123"), "Test 123");
+    }
+
+    #[test]
+    fn test_cleanup_ocr_artifacts_handles_complex_text() {
+        let input = "Press #C to copy ¬¢ item -> next";
+        let expected = "Press ⌘C to copy • item → next";
+        assert_eq!(cleanup_ocr_artifacts(input), expected);
+    }
+
+    #[test]
+    fn test_parse_bounds_from_debug_extracts_coordinates() {
+        let result = parse_bounds_from_debug("Rect { min: (10, 20), max: (100, 50) }");
+        assert_eq!(result, (10.0, 20.0, 90.0, 30.0));
+    }
+
+    #[test]
+    fn test_parse_bounds_from_debug_handles_invalid_input() {
+        let result = parse_bounds_from_debug("invalid");
+        assert_eq!(result, (0.0, 0.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn test_get_ocr_replacements_returns_non_empty_list() {
+        let replacements = get_ocr_replacements();
+        assert!(!replacements.is_empty());
+        assert!(replacements.len() > 100);
+    }
+
+    #[test]
+    fn test_get_ocr_replacements_contains_essential_patterns() {
+        let replacements = get_ocr_replacements();
+        let patterns: Vec<&str> = replacements.iter().map(|(p, _)| *p).collect();
+
+        assert!(patterns.contains(&"#C"));
+        assert!(patterns.contains(&"#V"));
+        assert!(patterns.contains(&"->"));
+        assert!(patterns.contains(&"..."));
+        assert!(patterns.contains(&"(c)"));
     }
 }

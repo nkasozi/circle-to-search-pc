@@ -1,4 +1,4 @@
-use iced::widget::{button, column, container, image, row, scrollable, text, Space};
+use iced::widget::{button, column, container, image, row, scrollable, text, text_input, Space};
 use iced::{Alignment, Border, Color, Element, Length, Shadow, Vector};
 
 use crate::core::models::WindowInfo;
@@ -8,6 +8,7 @@ pub struct WindowPickerView {
     selected_window_id: Option<u32>,
     is_loading: bool,
     spinner_frame: usize,
+    filter_query: String,
 }
 
 #[derive(Debug, Clone)]
@@ -18,6 +19,7 @@ pub enum WindowPickerMessage {
     RefreshWindows,
     CaptureFullScreen,
     SpinnerTick,
+    FilterChanged(String),
 }
 
 impl WindowPickerView {
@@ -31,6 +33,7 @@ impl WindowPickerView {
             selected_window_id: None,
             is_loading: false,
             spinner_frame: 0,
+            filter_query: String::new(),
         }
     }
 
@@ -53,6 +56,20 @@ impl WindowPickerView {
             .and_then(|id| self.windows.iter().find(|w| w.id == id))
     }
 
+    fn get_filtered_windows(&self) -> Vec<&WindowInfo> {
+        if self.filter_query.is_empty() {
+            return self.windows.iter().collect();
+        }
+        let query_lower = self.filter_query.to_lowercase();
+        self.windows
+            .iter()
+            .filter(|w| {
+                w.app_name.to_lowercase().contains(&query_lower)
+                    || w.title.to_lowercase().contains(&query_lower)
+            })
+            .collect()
+    }
+
     pub fn update(&mut self, message: WindowPickerMessage) {
         match message {
             WindowPickerMessage::WindowSelected(id) => {
@@ -69,6 +86,7 @@ impl WindowPickerView {
                 log::info!("[WINDOW_PICKER] Refreshing window list");
                 self.is_loading = true;
                 self.spinner_frame = 0;
+                self.filter_query.clear();
             }
             WindowPickerMessage::CaptureFullScreen => {
                 log::info!("[WINDOW_PICKER] Capture full screen selected");
@@ -77,6 +95,10 @@ impl WindowPickerView {
                 if self.is_loading {
                     self.spinner_frame = (self.spinner_frame + 1) % 8;
                 }
+            }
+            WindowPickerMessage::FilterChanged(query) => {
+                log::debug!("[WINDOW_PICKER] Filter changed: {}", query);
+                self.filter_query = query;
             }
         }
     }
@@ -171,16 +193,46 @@ impl WindowPickerView {
             .center_x(Length::Fill)
             .into()
         } else {
-            let window_items: Vec<Element<'_, WindowPickerMessage>> = self
-                .windows
-                .iter()
-                .map(|window| self.render_window_item(window))
-                .collect();
-
-            scrollable(column(window_items).spacing(8).padding(4))
-                .height(Length::FillPortion(1))
+            let filtered_windows = self.get_filtered_windows();
+            if filtered_windows.is_empty() {
+                container(
+                    text("No matching windows")
+                        .size(16)
+                        .style(|_theme: &iced::Theme| iced::widget::text::Style {
+                            color: Some(Color::from_rgba(0.6, 0.6, 0.6, 1.0)),
+                        }),
+                )
+                .padding(40)
+                .center_x(Length::Fill)
                 .into()
+            } else {
+                let window_items: Vec<Element<'_, WindowPickerMessage>> = filtered_windows
+                    .iter()
+                    .map(|window| self.render_window_item(window))
+                    .collect();
+
+                scrollable(column(window_items).spacing(8).padding(4))
+                    .height(Length::FillPortion(1))
+                    .into()
+            }
         };
+
+        let filter_input = text_input("Filter apps...", &self.filter_query)
+            .on_input(WindowPickerMessage::FilterChanged)
+            .padding([10, 14])
+            .width(Length::Fill)
+            .style(|_theme: &iced::Theme, _status| text_input::Style {
+                background: iced::Background::Color(Color::from_rgba(0.15, 0.15, 0.18, 0.9)),
+                border: Border {
+                    color: Color::from_rgba(0.3, 0.3, 0.35, 0.6),
+                    width: 1.0,
+                    radius: 8.0.into(),
+                },
+                icon: Color::from_rgba(0.5, 0.5, 0.5, 0.8),
+                placeholder: Color::from_rgba(0.5, 0.5, 0.5, 0.8),
+                value: Color::WHITE,
+                selection: Color::from_rgba(0.3, 0.5, 0.8, 0.5),
+            });
 
         let mut bottom_row = row![].spacing(12);
 
@@ -257,6 +309,10 @@ impl WindowPickerView {
             bottom_row = bottom_row.push(confirm_btn);
         }
 
+        let filter_row = row![text("🔍").size(16), filter_input,]
+            .spacing(8)
+            .align_y(Alignment::Center);
+
         let content = column![
             header,
             full_screen_btn,
@@ -265,6 +321,7 @@ impl WindowPickerView {
                 .style(|_theme: &iced::Theme| iced::widget::text::Style {
                     color: Some(Color::from_rgba(0.6, 0.6, 0.6, 1.0)),
                 }),
+            filter_row,
             window_list,
             bottom_row,
         ]
@@ -393,5 +450,251 @@ impl WindowPickerView {
             })
             .on_press(WindowPickerMessage::WindowSelected(window_id))
             .into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_window(id: u32, app_name: &str, title: &str) -> WindowInfo {
+        WindowInfo {
+            id,
+            app_name: app_name.to_string(),
+            title: title.to_string(),
+            width: 800,
+            height: 600,
+            is_minimized: false,
+            thumbnail: None,
+        }
+    }
+
+    #[test]
+    fn test_build_creates_view_with_windows() {
+        let windows = vec![
+            create_test_window(1, "Chrome", "Google"),
+            create_test_window(2, "Firefox", "Mozilla"),
+        ];
+        let view = WindowPickerView::build(windows);
+
+        assert_eq!(view.windows.len(), 2);
+        assert!(view.selected_window_id.is_none());
+        assert!(!view.is_loading);
+        assert!(view.filter_query.is_empty());
+    }
+
+    #[test]
+    fn test_build_creates_empty_view() {
+        let view = WindowPickerView::build(vec![]);
+
+        assert!(view.windows.is_empty());
+    }
+
+    #[test]
+    fn test_set_windows_updates_list() {
+        let mut view = WindowPickerView::build(vec![]);
+        let windows = vec![create_test_window(1, "App", "Window")];
+
+        view.set_windows(windows);
+
+        assert_eq!(view.windows.len(), 1);
+        assert!(!view.is_loading);
+    }
+
+    #[test]
+    fn test_set_loading_updates_state() {
+        let mut view = WindowPickerView::build(vec![]);
+
+        view.set_loading(true);
+        assert!(view.is_loading);
+
+        view.set_loading(false);
+        assert!(!view.is_loading);
+    }
+
+    #[test]
+    fn test_update_window_selected_sets_id() {
+        let windows = vec![create_test_window(42, "App", "Window")];
+        let mut view = WindowPickerView::build(windows);
+
+        view.update(WindowPickerMessage::WindowSelected(42));
+
+        assert_eq!(view.selected_window_id, Some(42));
+    }
+
+    #[test]
+    fn test_update_refresh_windows_sets_loading() {
+        let mut view = WindowPickerView::build(vec![]);
+        view.filter_query = "test".to_string();
+
+        view.update(WindowPickerMessage::RefreshWindows);
+
+        assert!(view.is_loading);
+        assert_eq!(view.spinner_frame, 0);
+        assert!(view.filter_query.is_empty());
+    }
+
+    #[test]
+    fn test_update_spinner_tick_increments_frame() {
+        let mut view = WindowPickerView::build(vec![]);
+        view.is_loading = true;
+
+        view.update(WindowPickerMessage::SpinnerTick);
+        assert_eq!(view.spinner_frame, 1);
+
+        view.update(WindowPickerMessage::SpinnerTick);
+        assert_eq!(view.spinner_frame, 2);
+    }
+
+    #[test]
+    fn test_update_spinner_tick_wraps_around() {
+        let mut view = WindowPickerView::build(vec![]);
+        view.is_loading = true;
+        view.spinner_frame = 7;
+
+        view.update(WindowPickerMessage::SpinnerTick);
+
+        assert_eq!(view.spinner_frame, 0);
+    }
+
+    #[test]
+    fn test_update_spinner_tick_does_nothing_when_not_loading() {
+        let mut view = WindowPickerView::build(vec![]);
+        view.is_loading = false;
+        view.spinner_frame = 3;
+
+        view.update(WindowPickerMessage::SpinnerTick);
+
+        assert_eq!(view.spinner_frame, 3);
+    }
+
+    #[test]
+    fn test_update_filter_changed_updates_query() {
+        let mut view = WindowPickerView::build(vec![]);
+
+        view.update(WindowPickerMessage::FilterChanged("chrome".to_string()));
+
+        assert_eq!(view.filter_query, "chrome");
+    }
+
+    #[test]
+    fn test_get_filtered_windows_returns_all_when_empty_query() {
+        let windows = vec![
+            create_test_window(1, "Chrome", "Google"),
+            create_test_window(2, "Firefox", "Mozilla"),
+        ];
+        let view = WindowPickerView::build(windows);
+
+        let filtered = view.get_filtered_windows();
+
+        assert_eq!(filtered.len(), 2);
+    }
+
+    #[test]
+    fn test_get_filtered_windows_filters_by_app_name() {
+        let windows = vec![
+            create_test_window(1, "Chrome", "Google"),
+            create_test_window(2, "Firefox", "Mozilla"),
+            create_test_window(3, "Chrome", "GitHub"),
+        ];
+        let mut view = WindowPickerView::build(windows);
+        view.filter_query = "chrome".to_string();
+
+        let filtered = view.get_filtered_windows();
+
+        assert_eq!(filtered.len(), 2);
+        assert!(filtered.iter().all(|w| w.app_name == "Chrome"));
+    }
+
+    #[test]
+    fn test_get_filtered_windows_filters_by_title() {
+        let windows = vec![
+            create_test_window(1, "Chrome", "Google Search"),
+            create_test_window(2, "Firefox", "Google Maps"),
+            create_test_window(3, "Safari", "Apple"),
+        ];
+        let mut view = WindowPickerView::build(windows);
+        view.filter_query = "google".to_string();
+
+        let filtered = view.get_filtered_windows();
+
+        assert_eq!(filtered.len(), 2);
+    }
+
+    #[test]
+    fn test_get_filtered_windows_case_insensitive() {
+        let windows = vec![
+            create_test_window(1, "CHROME", "Google"),
+            create_test_window(2, "chrome", "Test"),
+            create_test_window(3, "Firefox", "Chrome Page"),
+        ];
+        let mut view = WindowPickerView::build(windows);
+        view.filter_query = "CHROME".to_string();
+
+        let filtered = view.get_filtered_windows();
+
+        assert_eq!(filtered.len(), 3);
+    }
+
+    #[test]
+    fn test_get_filtered_windows_returns_empty_when_no_match() {
+        let windows = vec![
+            create_test_window(1, "Chrome", "Google"),
+            create_test_window(2, "Firefox", "Mozilla"),
+        ];
+        let mut view = WindowPickerView::build(windows);
+        view.filter_query = "safari".to_string();
+
+        let filtered = view.get_filtered_windows();
+
+        assert!(filtered.is_empty());
+    }
+
+    #[test]
+    fn test_get_selected_window_id_returns_none_initially() {
+        let view = WindowPickerView::build(vec![]);
+
+        assert!(view.get_selected_window_id().is_none());
+    }
+
+    #[test]
+    fn test_get_selected_window_id_returns_selected() {
+        let windows = vec![create_test_window(99, "App", "Window")];
+        let mut view = WindowPickerView::build(windows);
+        view.update(WindowPickerMessage::WindowSelected(99));
+
+        assert_eq!(view.get_selected_window_id(), Some(99));
+    }
+
+    #[test]
+    fn test_get_selected_window_info_returns_none_when_not_selected() {
+        let windows = vec![create_test_window(1, "App", "Window")];
+        let view = WindowPickerView::build(windows);
+
+        assert!(view.get_selected_window_info().is_none());
+    }
+
+    #[test]
+    fn test_get_selected_window_info_returns_window() {
+        let windows = vec![
+            create_test_window(1, "Chrome", "Google"),
+            create_test_window(2, "Firefox", "Mozilla"),
+        ];
+        let mut view = WindowPickerView::build(windows);
+        view.update(WindowPickerMessage::WindowSelected(2));
+
+        let info = view.get_selected_window_info();
+
+        assert!(info.is_some());
+        assert_eq!(info.unwrap().app_name, "Firefox");
+    }
+
+    #[test]
+    fn test_get_selected_window_info_returns_none_for_invalid_id() {
+        let windows = vec![create_test_window(1, "App", "Window")];
+        let mut view = WindowPickerView::build(windows);
+        view.selected_window_id = Some(999);
+
+        assert!(view.get_selected_window_info().is_none());
     }
 }

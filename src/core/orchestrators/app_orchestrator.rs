@@ -1783,6 +1783,11 @@ impl AppOrchestrator {
                 ]);
             }
             WindowPickerMessage::SpinnerTick => {}
+            WindowPickerMessage::FilterChanged(query) => {
+                if let Some(AppWindow::WindowPicker(view)) = self.windows.get_mut(&window_id) {
+                    view.update(WindowPickerMessage::FilterChanged(query));
+                }
+            }
         }
 
         Task::none()

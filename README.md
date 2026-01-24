@@ -122,11 +122,10 @@ graph TB
 ```bash
 git clone https://github.com/nkasozi/circle-to-search-pc.git
 cd circle-to-search-pc
-./download-tessdata.sh
 ./create-macos-bundle.sh
 ```
 
-The script automatically stops any running instance, removes the old installation, and installs the new build to `/Applications`.
+The script automatically downloads required data, stops any running instance, removes the old installation, and installs the new build to `/Applications`.
 
 **First Launch**: macOS Gatekeeper blocks apps that aren't signed with an Apple Developer certificate ($99/year). Since this is an open-source project built from source, you'll need to manually approve it:
 
@@ -141,16 +140,14 @@ After the first launch, it will open normally from Spotlight or Applications.
 ```powershell
 git clone https://github.com/nkasozi/circle-to-search-pc.git
 cd circle-to-search-pc
-# Run download-tessdata.sh using Git Bash or WSL
 ./create-windows-bundle.ps1
 ```
 
-The script builds the application, creates an installation in `%LOCALAPPDATA%\Circle to Search`, and adds a Start Menu shortcut.
+The script automatically downloads required data, builds the application, creates an installation in `%LOCALAPPDATA%\Circle to Search`, and adds a Start Menu shortcut.
 
 **Prerequisites**:
 
 - [Rust](https://rustup.rs) must be installed
-- [Git Bash](https://git-scm.com/downloads) or WSL to run the `download-tessdata.sh` script
 
 **To run the PowerShell script**, you may need to adjust execution policy:
 
@@ -163,11 +160,10 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```bash
 git clone https://github.com/nkasozi/circle-to-search-pc.git
 cd circle-to-search-pc
-./download-tessdata.sh
 ./create-linux-bundle.sh
 ```
 
-The script builds the application, installs to `~/.local/share/circle-to-search-pc`, creates a symlink in `~/.local/bin`, and adds a desktop entry for your application menu.
+The script automatically downloads required data, builds the application, installs to `~/.local/share/circle-to-search-pc`, creates a symlink in `~/.local/bin`, and adds a desktop entry for your application menu.
 
 **Prerequisites** (install build dependencies):
 

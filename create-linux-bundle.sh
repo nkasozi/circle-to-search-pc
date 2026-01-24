@@ -21,8 +21,11 @@ fi
 echo "  ✓ Cargo found"
 
 if [ ! -f "tessdata/eng.traineddata" ]; then
-    echo "ERROR: tessdata not found. Please run ./download-tessdata.sh first"
-    exit 1
+    echo "  tessdata not found, downloading..."
+    if ! ./download-tessdata.sh; then
+        echo "ERROR: Failed to download tessdata"
+        exit 1
+    fi
 fi
 echo "  ✓ tessdata found"
 

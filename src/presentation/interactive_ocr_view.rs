@@ -896,8 +896,6 @@ impl InteractiveOcrView {
             SearchState::Failed(_) => ("❌", true),
         };
 
-        let google_colors_placeholder = Self::create_google_colored_placeholder();
-
         let search_input = text_input("", &self.search_query)
             .on_input(InteractiveOcrMessage::SearchQueryChanged)
             .on_submit(InteractiveOcrMessage::SearchSelected)
@@ -917,21 +915,47 @@ impl InteractiveOcrView {
                 selection: Color::from_rgba(0.3, 0.5, 0.8, 0.5),
             });
 
+        let show_placeholder = self.search_query.is_empty();
+        let google_blue = Color::from_rgba(
+            0.259,
+            0.522,
+            0.957,
+            if show_placeholder { 1.0 } else { 0.0 },
+        );
+        let google_red = Color::from_rgba(
+            0.918,
+            0.263,
+            0.208,
+            if show_placeholder { 1.0 } else { 0.0 },
+        );
+        let google_yellow =
+            Color::from_rgba(0.984, 0.737, 0.02, if show_placeholder { 1.0 } else { 0.0 });
+        let google_green = Color::from_rgba(
+            0.204,
+            0.659,
+            0.325,
+            if show_placeholder { 1.0 } else { 0.0 },
+        );
+
+        let placeholder_overlay = container(
+            row![
+                text("G").size(14).color(google_blue),
+                text("o").size(14).color(google_red),
+                text("o").size(14).color(google_yellow),
+                text("g").size(14).color(google_blue),
+                text("l").size(14).color(google_green),
+                text("e").size(14).color(google_red),
+            ]
+            .spacing(0),
+        )
+        .width(Length::Fixed(160.0))
+        .height(Length::Shrink)
+        .align_x(Alignment::Center)
+        .align_y(Alignment::Center)
+        .padding([8, 12]);
+
         let search_input_with_placeholder: Element<'_, InteractiveOcrMessage> =
-            if self.search_query.is_empty() {
-                stack![
-                    search_input,
-                    container(google_colors_placeholder)
-                        .width(Length::Fixed(160.0))
-                        .height(Length::Shrink)
-                        .align_x(Alignment::Center)
-                        .align_y(Alignment::Center)
-                        .padding([8, 12])
-                ]
-                .into()
-            } else {
-                search_input.into()
-            };
+            stack![search_input, placeholder_overlay].into();
 
         action_row = action_row.push(
             tooltip(
@@ -1363,24 +1387,6 @@ impl InteractiveOcrView {
             shadow: Shadow::default(),
             snap: false,
         }
-    }
-
-    fn create_google_colored_placeholder() -> Element<'static, InteractiveOcrMessage> {
-        let google_blue = Color::from_rgb(0.259, 0.522, 0.957);
-        let google_red = Color::from_rgb(0.918, 0.263, 0.208);
-        let google_yellow = Color::from_rgb(0.984, 0.737, 0.02);
-        let google_green = Color::from_rgb(0.204, 0.659, 0.325);
-
-        row![
-            text("G").size(14).color(google_blue),
-            text("o").size(14).color(google_red),
-            text("o").size(14).color(google_yellow),
-            text("g").size(14).color(google_blue),
-            text("l").size(14).color(google_green),
-            text("e").size(14).color(google_red),
-        ]
-        .spacing(0)
-        .into()
     }
 
     fn tooltip_style(_theme: &iced::Theme) -> iced::widget::container::Style {
