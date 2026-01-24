@@ -32,6 +32,7 @@ pub enum CaptureViewMessage {
     #[allow(dead_code)]
     CancelRequested,
     SetDrawMode(DrawMode),
+    SelectWindow,
 }
 
 impl CaptureView {
@@ -119,6 +120,7 @@ impl CaptureView {
                 self.freeform_points.clear();
                 self.is_shape_closed = false;
             }
+            CaptureViewMessage::SelectWindow => {}
         }
     }
 
@@ -189,24 +191,33 @@ impl CaptureView {
                 })
                 .on_press(CaptureViewMessage::SetDrawMode(DrawMode::Freeform));
 
-            let toolbar =
-                container(row![rect_btn, freeform_btn,].spacing(8).padding(8)).style(|_theme| {
-                    container::Style {
-                        background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.85))),
-                        border: Border {
-                            color: Color::from_rgba(0.4, 0.4, 0.4, 0.9),
-                            width: 1.0,
-                            radius: 8.0.into(),
-                        },
-                        shadow: Shadow {
-                            color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
-                            offset: Vector::new(0.0, 4.0),
-                            blur_radius: 12.0,
-                        },
-                        text_color: None,
-                        snap: false,
-                    }
-                });
+            let window_btn = button(text("🪟 Window"))
+                .padding([8, 16])
+                .style(move |theme: &iced::Theme, status| {
+                    self.toolbar_button_style(theme, status, false)
+                })
+                .on_press(CaptureViewMessage::SelectWindow);
+
+            let toolbar = container(
+                row![rect_btn, freeform_btn, window_btn,]
+                    .spacing(8)
+                    .padding(8),
+            )
+            .style(|_theme| container::Style {
+                background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.85))),
+                border: Border {
+                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.9),
+                    width: 1.0,
+                    radius: 8.0.into(),
+                },
+                shadow: Shadow {
+                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
+                    offset: Vector::new(0.0, 4.0),
+                    blur_radius: 12.0,
+                },
+                text_color: None,
+                snap: false,
+            });
 
             let toolbar_positioned = container(toolbar)
                 .width(Length::Fill)

@@ -9,10 +9,13 @@ use mouse_position::mouse_position::Mouse;
 use crate::adapters::{auto_launch, macos_permissions};
 use crate::core::interfaces::adapters::{OcrService, ReverseImageSearchProvider};
 use crate::core::interfaces::ports::{MousePositionProvider, ScreenCapturer};
-use crate::core::models::{CaptureBuffer, OcrResult, ScreenRegion, ThemeMode, UserSettings};
+use crate::core::models::{
+    CaptureBuffer, OcrResult, ScreenRegion, ThemeMode, UserSettings, WindowInfo,
+};
 use crate::ports::{GlobalKeyboardEvent, TrayEvent};
 use crate::presentation::app_theme;
 use crate::presentation::{CaptureView, CaptureViewMessage, OnboardingMessage, OnboardingView};
+use crate::presentation::{WindowPickerMessage, WindowPickerView};
 
 pub enum AppWindow {
     Main,
@@ -21,6 +24,7 @@ pub enum AppWindow {
     Settings,
     Onboarding(OnboardingView),
     Hidden,
+    WindowPicker(WindowPickerView),
 }
 
 pub struct AppOrchestrator {
@@ -33,6 +37,7 @@ pub struct AppOrchestrator {
     main_window_id: Option<Id>,
     onboarding_window_id: Option<Id>,
     hidden_window_id: Option<Id>,
+    window_picker_window_id: Option<Id>,
     status: String,
     settings: UserSettings,
     settings_window_id: Option<Id>,
@@ -78,6 +83,13 @@ pub enum OrchestratorMessage {
     EnableKeyboardListener,
     CopyImageToClipboard(Id, CaptureBuffer, Vec<crate::presentation::DrawStroke>),
     SaveImageToFile(Id, CaptureBuffer, Vec<crate::presentation::DrawStroke>),
+    #[allow(dead_code)]
+    OpenWindowPicker,
+    WindowPickerMsg(Id, WindowPickerMessage),
+    WindowsListLoaded(Id, Vec<WindowInfo>),
+    CaptureSelectedWindow(u32),
+    WindowCaptureComplete(CaptureBuffer),
+    WindowCaptureError(String),
 }
 
 impl std::fmt::Debug for OrchestratorMessage {
@@ -132,6 +144,22 @@ impl std::fmt::Debug for OrchestratorMessage {
             OrchestratorMessage::SaveImageToFile(id, _, _) => {
                 write!(f, "SaveImageToFile({:?})", id)
             }
+            OrchestratorMessage::OpenWindowPicker => write!(f, "OpenWindowPicker"),
+            OrchestratorMessage::WindowPickerMsg(id, _) => {
+                write!(f, "WindowPickerMsg({:?})", id)
+            }
+            OrchestratorMessage::WindowsListLoaded(id, windows) => {
+                write!(f, "WindowsListLoaded({:?}, {} windows)", id, windows.len())
+            }
+            OrchestratorMessage::CaptureSelectedWindow(window_id) => {
+                write!(f, "CaptureSelectedWindow({})", window_id)
+            }
+            OrchestratorMessage::WindowCaptureComplete(_) => {
+                write!(f, "WindowCaptureComplete")
+            }
+            OrchestratorMessage::WindowCaptureError(e) => {
+                write!(f, "WindowCaptureError({})", e)
+            }
         }
     }
 }
@@ -153,6 +181,7 @@ impl AppOrchestrator {
             main_window_id: None,
             onboarding_window_id: None,
             hidden_window_id: None,
+            window_picker_window_id: None,
             status: "Initializing OCR service...".to_string(),
             settings,
             settings_window_id: None,
@@ -326,6 +355,24 @@ impl AppOrchestrator {
             OrchestratorMessage::SaveImageToFile(window_id, buffer, draw_strokes) => {
                 return self.handle_save_image_to_file(window_id, buffer, draw_strokes);
             }
+            OrchestratorMessage::OpenWindowPicker => {
+                return self.handle_open_window_picker();
+            }
+            OrchestratorMessage::WindowPickerMsg(window_id, msg) => {
+                return self.handle_window_picker_message(window_id, msg);
+            }
+            OrchestratorMessage::WindowsListLoaded(window_id, windows) => {
+                return self.handle_windows_list_loaded(window_id, windows);
+            }
+            OrchestratorMessage::CaptureSelectedWindow(window_id) => {
+                return self.handle_capture_selected_window(window_id);
+            }
+            OrchestratorMessage::WindowCaptureComplete(capture_buffer) => {
+                return self.handle_window_capture_complete(capture_buffer);
+            }
+            OrchestratorMessage::WindowCaptureError(error_msg) => {
+                log::error!("[ORCHESTRATOR] Window capture failed: {}", error_msg);
+            }
         }
 
         log::debug!("[ORCHESTRATOR] No task to return, ending update");
@@ -346,6 +393,9 @@ impl AppOrchestrator {
                 .view()
                 .map(move |msg| OrchestratorMessage::OnboardingMsg(window_id, msg)),
             Some(AppWindow::Hidden) => container(Space::new()).into(),
+            Some(AppWindow::WindowPicker(picker_view)) => picker_view
+                .render_ui()
+                .map(move |msg| OrchestratorMessage::WindowPickerMsg(window_id, msg)),
             None => text("Loading...").into(),
         }
     }
@@ -517,6 +567,14 @@ impl AppOrchestrator {
         if let CaptureViewMessage::ConfirmSelection = capture_msg {
             log::info!("[ORCHESTRATOR] Selection confirmed by overlay");
             return self.update(OrchestratorMessage::ConfirmSelection(window_id));
+        }
+
+        if let CaptureViewMessage::SelectWindow = capture_msg {
+            log::info!("[ORCHESTRATOR] Window selection requested from capture overlay");
+            return Task::batch(vec![
+                window::close(window_id),
+                Task::done(OrchestratorMessage::OpenWindowPicker),
+            ]);
         }
 
         if let Some(AppWindow::CaptureOverlay(capture_view)) = self.windows.get_mut(&window_id) {
@@ -863,6 +921,13 @@ impl AppOrchestrator {
             return Task::none();
         }
 
+        if Some(id) == self.window_picker_window_id {
+            log::info!("[ORCHESTRATOR] Window picker closed");
+            self.windows.remove(&id);
+            self.window_picker_window_id = None;
+            return Task::none();
+        }
+
         let was_ocr_window = matches!(self.windows.get(&id), Some(AppWindow::InteractiveOcr(_)));
         self.windows.remove(&id);
         if Some(id) == self.settings_window_id {
@@ -885,9 +950,9 @@ impl AppOrchestrator {
 
     fn handle_open_settings(&mut self) -> Task<OrchestratorMessage> {
         log::info!("[ORCHESTRATOR] Opening settings window");
-        if self.settings_window_id.is_some() {
-            log::warn!("[ORCHESTRATOR] Settings window already open");
-            return Task::none();
+        if let Some(id) = self.settings_window_id {
+            log::debug!("[ORCHESTRATOR] Settings window already open, bringing to front");
+            return window::gain_focus(id);
         }
 
         let (id, task) = window::open(window::Settings {
@@ -944,6 +1009,7 @@ impl AppOrchestrator {
 
         match event {
             TrayEvent::ShowWindow => self.handle_open_main_window(),
+            TrayEvent::SelectWindow => self.handle_open_window_picker(),
             TrayEvent::OpenSettings => self.handle_open_settings(),
             TrayEvent::Quit => {
                 log::info!("[ORCHESTRATOR] Quit requested from tray");
@@ -1597,6 +1663,179 @@ impl AppOrchestrator {
             }),
         ])
     }
+
+    fn handle_open_window_picker(&mut self) -> Task<OrchestratorMessage> {
+        log::info!("[ORCHESTRATOR] Opening window picker");
+
+        if let Some(id) = self.window_picker_window_id {
+            log::debug!("[ORCHESTRATOR] Window picker already open, bringing to front");
+            return window::gain_focus(id);
+        }
+
+        let picker_view = WindowPickerView::build(vec![]);
+        let (id, open_task) = window::open(window::Settings {
+            size: Size::new(500.0, 600.0),
+            position: window::Position::Centered,
+            visible: true,
+            resizable: true,
+            decorations: true,
+            ..Default::default()
+        });
+
+        self.window_picker_window_id = Some(id);
+        self.windows
+            .insert(id, AppWindow::WindowPicker(picker_view));
+
+        let screen_capturer = Arc::clone(&self.screen_capturer);
+
+        Task::batch(vec![
+            open_task.discard(),
+            Task::future(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                match screen_capturer.list_capturable_windows() {
+                    Ok(windows) => {
+                        log::info!("[ORCHESTRATOR] Found {} capturable windows", windows.len());
+                        OrchestratorMessage::WindowsListLoaded(id, windows)
+                    }
+                    Err(e) => {
+                        log::error!("[ORCHESTRATOR] Failed to list windows: {}", e);
+                        OrchestratorMessage::WindowsListLoaded(id, vec![])
+                    }
+                }
+            }),
+        ])
+    }
+
+    fn handle_window_picker_message(
+        &mut self,
+        window_id: Id,
+        msg: WindowPickerMessage,
+    ) -> Task<OrchestratorMessage> {
+        log::debug!("[ORCHESTRATOR] Handling window picker message: {:?}", msg);
+
+        match msg {
+            WindowPickerMessage::WindowSelected(selected_id) => {
+                if let Some(AppWindow::WindowPicker(view)) = self.windows.get_mut(&window_id) {
+                    view.update(WindowPickerMessage::WindowSelected(selected_id));
+                }
+            }
+            WindowPickerMessage::ConfirmSelection => {
+                let selected_window_id =
+                    if let Some(AppWindow::WindowPicker(view)) = self.windows.get(&window_id) {
+                        view.get_selected_window_id()
+                    } else {
+                        None
+                    };
+
+                if let Some(win_id) = selected_window_id {
+                    return Task::batch(vec![
+                        window::close(window_id),
+                        Task::done(OrchestratorMessage::CaptureSelectedWindow(win_id)),
+                    ]);
+                }
+            }
+            WindowPickerMessage::Cancel => {
+                log::info!("[ORCHESTRATOR] Window picker cancelled");
+                self.window_picker_window_id = None;
+                return window::close(window_id);
+            }
+            WindowPickerMessage::RefreshWindows => {
+                if let Some(AppWindow::WindowPicker(view)) = self.windows.get_mut(&window_id) {
+                    view.set_loading(true);
+                }
+
+                let screen_capturer = Arc::clone(&self.screen_capturer);
+                return Task::future(async move {
+                    match screen_capturer.list_capturable_windows() {
+                        Ok(windows) => {
+                            log::info!(
+                                "[ORCHESTRATOR] Refreshed window list: {} windows",
+                                windows.len()
+                            );
+                            OrchestratorMessage::WindowsListLoaded(window_id, windows)
+                        }
+                        Err(e) => {
+                            log::error!("[ORCHESTRATOR] Failed to refresh windows: {}", e);
+                            OrchestratorMessage::WindowsListLoaded(window_id, vec![])
+                        }
+                    }
+                });
+            }
+            WindowPickerMessage::CaptureFullScreen => {
+                log::info!("[ORCHESTRATOR] Full screen capture selected from picker");
+                return Task::batch(vec![
+                    window::close(window_id),
+                    Task::done(OrchestratorMessage::CaptureScreen),
+                ]);
+            }
+        }
+
+        Task::none()
+    }
+
+    fn handle_windows_list_loaded(
+        &mut self,
+        window_id: Id,
+        windows: Vec<WindowInfo>,
+    ) -> Task<OrchestratorMessage> {
+        log::debug!(
+            "[ORCHESTRATOR] Windows list loaded: {} windows",
+            windows.len()
+        );
+
+        if let Some(AppWindow::WindowPicker(view)) = self.windows.get_mut(&window_id) {
+            view.set_windows(windows);
+        }
+
+        Task::none()
+    }
+
+    fn handle_capture_selected_window(&mut self, window_id: u32) -> Task<OrchestratorMessage> {
+        log::info!("[ORCHESTRATOR] Capturing selected window: {}", window_id);
+        self.window_picker_window_id = None;
+
+        let screen_capturer = Arc::clone(&self.screen_capturer);
+
+        Task::future(async move {
+            match screen_capturer.capture_window_by_id(window_id) {
+                Ok(capture_buffer) => {
+                    log::info!(
+                        "[ORCHESTRATOR] Window captured successfully: {}x{}",
+                        capture_buffer.width,
+                        capture_buffer.height
+                    );
+                    OrchestratorMessage::WindowCaptureComplete(capture_buffer)
+                }
+                Err(e) => {
+                    log::error!("[ORCHESTRATOR] Window capture failed: {}", e);
+                    OrchestratorMessage::WindowCaptureError(e.to_string())
+                }
+            }
+        })
+    }
+
+    fn handle_window_capture_complete(
+        &mut self,
+        capture_buffer: CaptureBuffer,
+    ) -> Task<OrchestratorMessage> {
+        log::info!(
+            "[ORCHESTRATOR] Processing window capture: {}x{}",
+            capture_buffer.width,
+            capture_buffer.height
+        );
+
+        let selection_rect = Rectangle {
+            x: 0.0,
+            y: 0.0,
+            width: capture_buffer.width as f32,
+            height: capture_buffer.height as f32,
+        };
+
+        self.update(OrchestratorMessage::ShowCroppedImage(
+            capture_buffer,
+            selection_rect,
+        ))
+    }
 }
 
 fn build_capture_error_message(error_msg: &str) -> String {
@@ -1668,6 +1907,15 @@ mod tests {
             &self,
             _region: &ScreenRegion,
         ) -> anyhow::Result<CaptureBuffer> {
+            let raw_data = vec![255u8; 100 * 100 * 4];
+            Ok(CaptureBuffer::build_from_raw_data(1.0, 100, 100, raw_data))
+        }
+
+        fn list_capturable_windows(&self) -> anyhow::Result<Vec<WindowInfo>> {
+            Ok(vec![])
+        }
+
+        fn capture_window_by_id(&self, _window_id: u32) -> anyhow::Result<CaptureBuffer> {
             let raw_data = vec![255u8; 100 * 100 * 4];
             Ok(CaptureBuffer::build_from_raw_data(1.0, 100, 100, raw_data))
         }

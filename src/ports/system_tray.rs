@@ -3,6 +3,7 @@ use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
 static SHOW_WINDOW_ID: OnceLock<MenuId> = OnceLock::new();
+static SELECT_WINDOW_ID: OnceLock<MenuId> = OnceLock::new();
 static SETTINGS_ID: OnceLock<MenuId> = OnceLock::new();
 static QUIT_ID: OnceLock<MenuId> = OnceLock::new();
 
@@ -10,6 +11,7 @@ pub struct SystemTray {
     _tray_icon: TrayIcon,
     _menu: Menu,
     _show_window_item: MenuItem,
+    _select_window_item: MenuItem,
     _settings_item: MenuItem,
     _quit_item: MenuItem,
 }
@@ -17,6 +19,7 @@ pub struct SystemTray {
 #[derive(Debug, Clone)]
 pub enum TrayEvent {
     ShowWindow,
+    SelectWindow,
     OpenSettings,
     Quit,
 }
@@ -34,21 +37,25 @@ impl SystemTray {
 
         let menu = Menu::new();
         let show_window_item = MenuItem::new("Show Window", true, None);
+        let select_window_item = MenuItem::new("Select Window to Capture...", true, None);
         let settings_item = MenuItem::new("Settings", true, None);
         let quit_item = MenuItem::new("Quit", true, None);
 
         let _ = SHOW_WINDOW_ID.set(show_window_item.id().clone());
+        let _ = SELECT_WINDOW_ID.set(select_window_item.id().clone());
         let _ = SETTINGS_ID.set(settings_item.id().clone());
         let _ = QUIT_ID.set(quit_item.id().clone());
 
         log::info!(
-            "[SYSTEM_TRAY] Menu item IDs - Show: {:?}, Settings: {:?}, Quit: {:?}",
+            "[SYSTEM_TRAY] Menu item IDs - Show: {:?}, SelectWindow: {:?}, Settings: {:?}, Quit: {:?}",
             show_window_item.id(),
+            select_window_item.id(),
             settings_item.id(),
             quit_item.id()
         );
 
         menu.append(&show_window_item)?;
+        menu.append(&select_window_item)?;
         menu.append(&settings_item)?;
         menu.append(&quit_item)?;
 
@@ -64,6 +71,7 @@ impl SystemTray {
             _tray_icon: tray_icon,
             _menu: menu,
             _show_window_item: show_window_item,
+            _select_window_item: select_window_item,
             _settings_item: settings_item,
             _quit_item: quit_item,
         })
@@ -89,6 +97,15 @@ impl TrayEvent {
         {
             log::info!("[SYSTEM_TRAY] Show Window clicked");
             return Some(TrayEvent::ShowWindow);
+        }
+
+        if SELECT_WINDOW_ID
+            .get()
+            .map(|id| id == event_id)
+            .unwrap_or(false)
+        {
+            log::info!("[SYSTEM_TRAY] Select Window clicked");
+            return Some(TrayEvent::SelectWindow);
         }
 
         if SETTINGS_ID.get().map(|id| id == event_id).unwrap_or(false) {
@@ -128,11 +145,13 @@ mod tests {
     #[test]
     fn test_all_tray_event_variants_are_cloneable() {
         let show_window = TrayEvent::ShowWindow;
+        let select_window = TrayEvent::SelectWindow;
         let settings = TrayEvent::OpenSettings;
         let quit = TrayEvent::Quit;
 
         let _cloned1 = show_window.clone();
-        let _cloned2 = settings.clone();
-        let _cloned3 = quit.clone();
+        let _cloned2 = select_window.clone();
+        let _cloned3 = settings.clone();
+        let _cloned4 = quit.clone();
     }
 }
