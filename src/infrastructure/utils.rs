@@ -397,3 +397,49 @@ fn draw_thick_line(
         }
     }
 }
+
+pub fn focus_external_window_by_app_name(app_name: &str) -> Result<(), String> {
+    log::info!(
+        "[WINDOW_FOCUS] Attempting to focus window for app: {}",
+        app_name
+    );
+
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+
+        let script = format!(
+            r#"tell application "System Events"
+                set targetProcess to first process whose name is "{}"
+                set frontmost of targetProcess to true
+            end tell"#,
+            app_name
+        );
+
+        let result = Command::new("osascript").arg("-e").arg(&script).output();
+
+        match result {
+            Ok(output) if output.status.success() => {
+                log::info!("[WINDOW_FOCUS] Successfully focused app: {}", app_name);
+                Ok(())
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let error_msg = format!("AppleScript failed: {}", stderr);
+                log::warn!("[WINDOW_FOCUS] {}", error_msg);
+                Err(error_msg)
+            }
+            Err(e) => {
+                let error_msg = format!("Failed to run osascript: {}", e);
+                log::error!("[WINDOW_FOCUS] {}", error_msg);
+                Err(error_msg)
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        log::warn!("[WINDOW_FOCUS] Window focus not implemented for this platform");
+        Err("Window focus not supported on this platform".to_string())
+    }
+}

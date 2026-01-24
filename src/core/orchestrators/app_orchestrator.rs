@@ -87,6 +87,8 @@ pub enum OrchestratorMessage {
     OpenWindowPicker,
     WindowPickerMsg(Id, WindowPickerMessage),
     WindowsListLoaded(Id, Vec<WindowInfo>),
+    FocusWindowAndCapture(String),
+    #[allow(dead_code)]
     CaptureSelectedWindow(u32),
     WindowCaptureComplete(CaptureBuffer),
     WindowCaptureError(String),
@@ -150,6 +152,9 @@ impl std::fmt::Debug for OrchestratorMessage {
             }
             OrchestratorMessage::WindowsListLoaded(id, windows) => {
                 write!(f, "WindowsListLoaded({:?}, {} windows)", id, windows.len())
+            }
+            OrchestratorMessage::FocusWindowAndCapture(app_name) => {
+                write!(f, "FocusWindowAndCapture({})", app_name)
             }
             OrchestratorMessage::CaptureSelectedWindow(window_id) => {
                 write!(f, "CaptureSelectedWindow({})", window_id)
@@ -290,6 +295,9 @@ impl AppOrchestrator {
                     if let AppWindow::InteractiveOcr(view) = window {
                         view.update(crate::presentation::InteractiveOcrMessage::SpinnerTick);
                     }
+                    if let AppWindow::WindowPicker(view) = window {
+                        view.update(crate::presentation::WindowPickerMessage::SpinnerTick);
+                    }
                 }
             }
             OrchestratorMessage::CloseWindow(id) => {
@@ -363,6 +371,9 @@ impl AppOrchestrator {
             }
             OrchestratorMessage::WindowsListLoaded(window_id, windows) => {
                 return self.handle_windows_list_loaded(window_id, windows);
+            }
+            OrchestratorMessage::FocusWindowAndCapture(app_name) => {
+                return self.handle_focus_window_and_capture(app_name);
             }
             OrchestratorMessage::CaptureSelectedWindow(window_id) => {
                 return self.handle_capture_selected_window(window_id);
@@ -1672,7 +1683,9 @@ impl AppOrchestrator {
             return window::gain_focus(id);
         }
 
-        let picker_view = WindowPickerView::build(vec![]);
+        let mut picker_view = WindowPickerView::build(vec![]);
+        picker_view.set_loading(true);
+
         let (id, open_task) = window::open(window::Settings {
             size: Size::new(500.0, 600.0),
             position: window::Position::Centered,
@@ -1720,17 +1733,18 @@ impl AppOrchestrator {
                 }
             }
             WindowPickerMessage::ConfirmSelection => {
-                let selected_window_id =
+                let selected_app_name =
                     if let Some(AppWindow::WindowPicker(view)) = self.windows.get(&window_id) {
-                        view.get_selected_window_id()
+                        view.get_selected_window_info().map(|w| w.app_name.clone())
                     } else {
                         None
                     };
 
-                if let Some(win_id) = selected_window_id {
+                if let Some(app_name) = selected_app_name {
+                    self.window_picker_window_id = None;
                     return Task::batch(vec![
                         window::close(window_id),
-                        Task::done(OrchestratorMessage::CaptureSelectedWindow(win_id)),
+                        Task::done(OrchestratorMessage::FocusWindowAndCapture(app_name)),
                     ]);
                 }
             }
@@ -1768,6 +1782,7 @@ impl AppOrchestrator {
                     Task::done(OrchestratorMessage::CaptureScreen),
                 ]);
             }
+            WindowPickerMessage::SpinnerTick => {}
         }
 
         Task::none()
@@ -1788,6 +1803,22 @@ impl AppOrchestrator {
         }
 
         Task::none()
+    }
+
+    fn handle_focus_window_and_capture(&mut self, app_name: String) -> Task<OrchestratorMessage> {
+        log::info!(
+            "[ORCHESTRATOR] Focusing window for app '{}' and preparing capture",
+            app_name
+        );
+
+        Task::future(async move {
+            let _ = crate::infrastructure::utils::focus_external_window_by_app_name(&app_name);
+
+            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+
+            log::debug!("[ORCHESTRATOR] Window focus delay complete, triggering screen capture");
+            OrchestratorMessage::CaptureScreen
+        })
     }
 
     fn handle_capture_selected_window(&mut self, window_id: u32) -> Task<OrchestratorMessage> {

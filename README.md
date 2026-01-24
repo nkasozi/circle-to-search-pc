@@ -1,6 +1,6 @@
 # Circle to Search For MacOs / Windows / Linux
 
-A desktop application that brings Google Lens-style "Circle to Search" functionality to your Mac or PC. Select any region of your screen, extract text using OCR, or perform reverse image searches directly from your desktop. Works on Macos, windows, linux
+A desktop application that brings Google Lens-style "Circle to Search" functionality to your Mac, Windows or Linux machine. Select any region of your screen, extract text using OCR, or perform reverse image searches directly from your desktop. This should works on Macos, windows, linux.
 
 ## The Problem
 
@@ -124,8 +124,9 @@ git clone https://github.com/nkasozi/circle-to-search-pc.git
 cd circle-to-search-pc
 ./download-tessdata.sh
 ./create-macos-bundle.sh
-cp -r "target/release/Circle to Search.app" /Applications/
 ```
+
+The script automatically stops any running instance, removes the old installation, and installs the new build to `/Applications`.
 
 **First Launch**: macOS Gatekeeper blocks apps that aren't signed with an Apple Developer certificate ($99/year). Since this is an open-source project built from source, you'll need to manually approve it:
 

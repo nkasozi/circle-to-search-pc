@@ -7,6 +7,7 @@ pub struct WindowPickerView {
     windows: Vec<WindowInfo>,
     selected_window_id: Option<u32>,
     is_loading: bool,
+    spinner_frame: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -16,6 +17,7 @@ pub enum WindowPickerMessage {
     Cancel,
     RefreshWindows,
     CaptureFullScreen,
+    SpinnerTick,
 }
 
 impl WindowPickerView {
@@ -28,6 +30,7 @@ impl WindowPickerView {
             windows,
             selected_window_id: None,
             is_loading: false,
+            spinner_frame: 0,
         }
     }
 
@@ -40,8 +43,14 @@ impl WindowPickerView {
         self.is_loading = is_loading;
     }
 
+    #[allow(dead_code)]
     pub fn get_selected_window_id(&self) -> Option<u32> {
         self.selected_window_id
+    }
+
+    pub fn get_selected_window_info(&self) -> Option<&WindowInfo> {
+        self.selected_window_id
+            .and_then(|id| self.windows.iter().find(|w| w.id == id))
     }
 
     pub fn update(&mut self, message: WindowPickerMessage) {
@@ -59,9 +68,15 @@ impl WindowPickerView {
             WindowPickerMessage::RefreshWindows => {
                 log::info!("[WINDOW_PICKER] Refreshing window list");
                 self.is_loading = true;
+                self.spinner_frame = 0;
             }
             WindowPickerMessage::CaptureFullScreen => {
                 log::info!("[WINDOW_PICKER] Capture full screen selected");
+            }
+            WindowPickerMessage::SpinnerTick => {
+                if self.is_loading {
+                    self.spinner_frame = (self.spinner_frame + 1) % 8;
+                }
             }
         }
     }
@@ -122,12 +137,24 @@ impl WindowPickerView {
         .on_press(WindowPickerMessage::CaptureFullScreen);
 
         let window_list: Element<'_, WindowPickerMessage> = if self.is_loading {
+            let spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"];
+            let spinner = spinner_chars[self.spinner_frame];
+
             container(
-                text("Loading windows...")
-                    .size(16)
-                    .style(|_theme: &iced::Theme| iced::widget::text::Style {
-                        color: Some(Color::from_rgba(0.6, 0.6, 0.6, 1.0)),
+                column![
+                    text(spinner).size(32).style(|_theme: &iced::Theme| {
+                        iced::widget::text::Style {
+                            color: Some(Color::from_rgba(0.4, 0.7, 1.0, 1.0)),
+                        }
                     }),
+                    text("Loading windows...")
+                        .size(16)
+                        .style(|_theme: &iced::Theme| iced::widget::text::Style {
+                            color: Some(Color::from_rgba(0.6, 0.6, 0.6, 1.0)),
+                        }),
+                ]
+                .spacing(12)
+                .align_x(Alignment::Center),
             )
             .padding(40)
             .center_x(Length::Fill)

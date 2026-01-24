@@ -39,9 +39,24 @@ if [ -d "tessdata" ]; then
     cp -r tessdata "target/release/${BUNDLE_NAME}/Contents/Resources/"
 fi
 
-echo "App bundle created at: target/release/${BUNDLE_NAME}"
 echo ""
-echo "To install, copy the app bundle to /Applications:"
-echo "  cp -r \"target/release/${BUNDLE_NAME}\" /Applications/"
+echo "Stopping any running instance and cleaning up old installation..."
+pkill -f "${EXECUTABLE_NAME}" 2>/dev/null && echo "  Stopped running instance" || echo "  No running instance found"
+if [ -d "/Applications/${BUNDLE_NAME}" ]; then
+    rm -rf "/Applications/${BUNDLE_NAME}"
+    echo "  Removed old installation from /Applications"
+else
+    echo "  No existing installation in /Applications"
+fi
+
+echo ""
+echo "Installing to /Applications..."
+cp -r "target/release/${BUNDLE_NAME}" /Applications/
+echo "  Installed to /Applications/${BUNDLE_NAME}"
+
+echo ""
+echo "App bundle created and installed successfully!"
 echo ""
 echo "The app will run as a system tray application (no dock icon)."
+echo ""
+echo "To launch, open 'Circle to Search' from Applications or Spotlight."
