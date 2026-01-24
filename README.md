@@ -43,6 +43,12 @@ Extract and interact with text from captured regions.
 
 ![OCR Results](screenshots/ocr-results.png)
 
+### Draw freely on your screenshots
+
+Draw anything on top of your screenshots.
+
+![Draw Things](screenshots/draw-things-on-screenshot.png)
+
 ### Google Lens Search
 
 Perform reverse image searches directly from captured regions.
