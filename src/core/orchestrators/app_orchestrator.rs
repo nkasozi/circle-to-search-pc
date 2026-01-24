@@ -353,10 +353,11 @@ impl AppOrchestrator {
     fn handle_open_main_window(&mut self) -> Task<OrchestratorMessage> {
         log::debug!("[ORCHESTRATOR] Opening main window");
 
-        if self.main_window_id.is_some() && self.windows.contains_key(&self.main_window_id.unwrap())
-        {
-            log::warn!("[ORCHESTRATOR] Main window already exists and is open");
-            return Task::none();
+        if let Some(id) = self.main_window_id {
+            if self.windows.contains_key(&id) {
+                log::info!("[ORCHESTRATOR] Main window already exists, bringing to front");
+                return window::gain_focus(id);
+            }
         }
 
         let (id, task) = window::open(window::Settings {
@@ -369,7 +370,7 @@ impl AppOrchestrator {
         self.main_window_id = Some(id);
         self.windows.insert(id, AppWindow::Main);
         log::info!("[ORCHESTRATOR] Main window created with ID: {:?}", id);
-        task.discard()
+        task.discard().chain(window::gain_focus(id))
     }
 
     fn handle_capture_screen(&mut self) -> Task<OrchestratorMessage> {

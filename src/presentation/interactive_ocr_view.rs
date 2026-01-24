@@ -77,6 +77,7 @@ pub struct InteractiveOcrView {
     draw_width: f32,
     draw_mode_enabled: bool,
     show_help_hint: bool,
+    toolbar_offset: Vector,
 }
 #[derive(Debug, Clone)]
 pub enum InteractiveOcrMessage {
@@ -114,6 +115,7 @@ pub enum InteractiveOcrMessage {
     CopyImageFailed(String),
     #[allow(dead_code)]
     HideSaveToast,
+    ToggleToolbarPosition,
 }
 
 impl InteractiveOcrView {
@@ -148,6 +150,7 @@ impl InteractiveOcrView {
             draw_width: 3.0,
             draw_mode_enabled: false,
             show_help_hint: false,
+            toolbar_offset: Vector::new(0.0, 0.0),
         }
     }
 
@@ -420,6 +423,15 @@ impl InteractiveOcrView {
             }
             InteractiveOcrMessage::HideSaveToast => {
                 self.save_state = SaveState::Idle;
+            }
+            InteractiveOcrMessage::ToggleToolbarPosition => {
+                if self.toolbar_offset.y > 50.0 {
+                    self.toolbar_offset = Vector::new(0.0, 0.0);
+                    log::debug!("[INTERACTIVE_OCR] Moved toolbar to bottom");
+                } else {
+                    self.toolbar_offset = Vector::new(0.0, 500.0);
+                    log::debug!("[INTERACTIVE_OCR] Moved toolbar to top");
+                }
             }
         }
     }
@@ -797,9 +809,54 @@ impl InteractiveOcrView {
 
         let mut action_row = row![].spacing(6).align_y(Alignment::Center);
 
+        let position_icon = if self.toolbar_offset.y > 50.0 {
+            "↓"
+        } else {
+            "↑"
+        };
+        let position_tooltip = if self.toolbar_offset.y > 50.0 {
+            "Move toolbar to bottom"
+        } else {
+            "Move toolbar to top"
+        };
+        let toggle_position_btn = button(text(position_icon).size(16))
+            .padding([8, 10])
+            .style(|_theme: &iced::Theme, status| {
+                let bg = match status {
+                    button::Status::Hovered => Color::from_rgba(0.3, 0.3, 0.3, 0.95),
+                    button::Status::Pressed => Color::from_rgba(0.2, 0.2, 0.2, 0.95),
+                    _ => Color::from_rgba(0.15, 0.15, 0.15, 0.7),
+                };
+                button::Style {
+                    background: Some(iced::Background::Color(bg)),
+                    text_color: Color::from_rgba(0.7, 0.7, 0.7, 0.9),
+                    border: Border {
+                        color: Color::from_rgba(0.4, 0.4, 0.4, 0.4),
+                        width: 1.0,
+                        radius: 6.0.into(),
+                    },
+                    shadow: Shadow::default(),
+                    snap: false,
+                }
+            })
+            .on_press(InteractiveOcrMessage::ToggleToolbarPosition);
+        action_row = action_row.push(
+            tooltip(
+                toggle_position_btn,
+                position_tooltip,
+                tooltip::Position::Top,
+            )
+            .style(Self::tooltip_style),
+        );
+
+        let copy_shortcut = if cfg!(target_os = "macos") {
+            "⌘C"
+        } else {
+            "Ctrl+C"
+        };
         if !self.selected_chars.is_empty() {
-            let copy_text_btn = button(text("📋 Copy Text").size(13))
-                .padding([8, 14])
+            let copy_text_btn = button(text("📋").size(20))
+                .padding([10, 14])
                 .style(|_theme: &iced::Theme, status| {
                     let bg = match status {
                         button::Status::Hovered => Color::from_rgba(0.5, 0.3, 0.8, 0.95),
@@ -820,8 +877,12 @@ impl InteractiveOcrView {
                 })
                 .on_press(InteractiveOcrMessage::CopySelected);
             action_row = action_row.push(
-                tooltip(copy_text_btn, "Copy Selected Text", tooltip::Position::Top)
-                    .style(Self::tooltip_style),
+                tooltip(
+                    copy_text_btn,
+                    text(format!("Copy Selected Text ({})", copy_shortcut)),
+                    tooltip::Position::Top,
+                )
+                .style(Self::tooltip_style),
             );
         }
 
@@ -835,10 +896,12 @@ impl InteractiveOcrView {
             SearchState::Failed(_) => ("❌", true),
         };
 
-        let search_input = text_input("Add search query...", &self.search_query)
+        let search_input = text_input("Google", &self.search_query)
             .on_input(InteractiveOcrMessage::SearchQueryChanged)
-            .padding([6, 10])
-            .width(Length::Fixed(150.0))
+            .on_submit(InteractiveOcrMessage::SearchSelected)
+            .padding([8, 12])
+            .width(Length::Fixed(160.0))
+            .align_x(Alignment::Center)
             .style(|_theme: &iced::Theme, _status| text_input::Style {
                 background: iced::Background::Color(Color::from_rgba(0.1, 0.1, 0.1, 0.9)),
                 border: Border {
@@ -847,7 +910,7 @@ impl InteractiveOcrView {
                     radius: 6.0.into(),
                 },
                 icon: Color::from_rgba(0.6, 0.6, 0.6, 0.8),
-                placeholder: Color::from_rgba(0.5, 0.5, 0.5, 0.7),
+                placeholder: Color::from_rgba(0.26, 0.52, 0.96, 0.9),
                 value: Color::WHITE,
                 selection: Color::from_rgba(0.3, 0.5, 0.8, 0.5),
             });
@@ -861,7 +924,7 @@ impl InteractiveOcrView {
             .style(Self::tooltip_style),
         );
 
-        let mut search_btn = button(text(search_text).size(14)).padding([8, 12]).style(
+        let mut search_btn = button(text(search_text).size(20)).padding([10, 14]).style(
             |_theme: &iced::Theme, status| {
                 let bg = match status {
                     button::Status::Hovered => Color::from_rgba(0.2, 0.5, 0.9, 0.95),
@@ -899,8 +962,14 @@ impl InteractiveOcrView {
             ImageCopyState::Failed(_) => ("❌", true),
         };
 
-        let mut copy_img_btn = button(text(copy_img_text).size(14)).padding([8, 12]).style(
-            |_theme: &iced::Theme, status| {
+        let copy_img_shortcut = if cfg!(target_os = "macos") {
+            "⌘D"
+        } else {
+            "Ctrl+D"
+        };
+        let mut copy_img_btn = button(text(copy_img_text).size(20))
+            .padding([10, 14])
+            .style(|_theme: &iced::Theme, status| {
                 let bg = match status {
                     button::Status::Hovered => Color::from_rgba(0.3, 0.3, 0.3, 0.95),
                     button::Status::Pressed => Color::from_rgba(0.2, 0.2, 0.2, 0.95),
@@ -917,15 +986,14 @@ impl InteractiveOcrView {
                     shadow: Shadow::default(),
                     snap: false,
                 }
-            },
-        );
+            });
         if !is_copying {
             copy_img_btn = copy_img_btn.on_press(InteractiveOcrMessage::CopyImageToClipboard);
         }
         action_row = action_row.push(
             tooltip(
                 copy_img_btn,
-                "Copy Image to Clipboard",
+                text(format!("Copy Image to Clipboard ({})", copy_img_shortcut)),
                 tooltip::Position::Top,
             )
             .style(Self::tooltip_style),
@@ -941,7 +1009,12 @@ impl InteractiveOcrView {
             SaveState::Failed(_) => ("❌", true),
         };
 
-        let mut save_btn = button(text(save_text).size(14)).padding([8, 12]).style(
+        let save_shortcut = if cfg!(target_os = "macos") {
+            "⌘S"
+        } else {
+            "Ctrl+S"
+        };
+        let mut save_btn = button(text(save_text).size(20)).padding([10, 14]).style(
             |_theme: &iced::Theme, status| {
                 let bg = match status {
                     button::Status::Hovered => Color::from_rgba(0.2, 0.6, 0.3, 0.95),
@@ -965,12 +1038,16 @@ impl InteractiveOcrView {
             save_btn = save_btn.on_press(InteractiveOcrMessage::SaveImageToFile);
         }
         action_row = action_row.push(
-            tooltip(save_btn, "Save Image to File", tooltip::Position::Top)
-                .style(Self::tooltip_style),
+            tooltip(
+                save_btn,
+                text(format!("Save Image to File ({})", save_shortcut)),
+                tooltip::Position::Top,
+            )
+            .style(Self::tooltip_style),
         );
 
-        let recrop_btn = button(text("🔄").size(14))
-            .padding([8, 12])
+        let recrop_btn = button(text("🔄").size(20))
+            .padding([10, 14])
             .style(|_theme: &iced::Theme, status| {
                 let bg = match status {
                     button::Status::Hovered => Color::from_rgba(0.4, 0.4, 0.5, 0.95),
@@ -995,8 +1072,13 @@ impl InteractiveOcrView {
                 .style(Self::tooltip_style),
         );
 
-        let close_btn = button(text("✖").size(14))
-            .padding([8, 12])
+        let close_shortcut = if cfg!(target_os = "macos") {
+            "Esc"
+        } else {
+            "Esc"
+        };
+        let close_btn = button(text("✖").size(20))
+            .padding([10, 14])
             .style(|_theme: &iced::Theme, status| {
                 let bg = match status {
                     button::Status::Hovered => Color::from_rgba(0.8, 0.2, 0.2, 0.95),
@@ -1016,8 +1098,14 @@ impl InteractiveOcrView {
                 }
             })
             .on_press(InteractiveOcrMessage::Close);
-        action_row = action_row
-            .push(tooltip(close_btn, "Close", tooltip::Position::Top).style(Self::tooltip_style));
+        action_row = action_row.push(
+            tooltip(
+                close_btn,
+                text(format!("Close ({})", close_shortcut)),
+                tooltip::Position::Top,
+            )
+            .style(Self::tooltip_style),
+        );
 
         let action_toolbar =
             container(action_row)
@@ -1040,17 +1128,26 @@ impl InteractiveOcrView {
                     snap: false,
                 });
 
+        let is_at_top = self.toolbar_offset.y > 50.0;
+        let vertical_alignment = if is_at_top {
+            Alignment::Start
+        } else {
+            Alignment::End
+        };
+        let top_padding = if is_at_top { 60.0 } else { 0.0 };
+        let bottom_padding = if is_at_top { 0.0 } else { 16.0 };
+
         let action_toolbar_positioned = container(action_toolbar)
             .width(Length::Fill)
             .height(Length::Fill)
             .padding(iced::Padding {
-                top: 0.0,
+                top: top_padding,
                 right: 0.0,
-                bottom: 16.0,
+                bottom: bottom_padding,
                 left: 0.0,
             })
             .align_x(Alignment::Center)
-            .align_y(Alignment::End);
+            .align_y(vertical_alignment);
 
         layers.push(action_toolbar_positioned.into());
 
@@ -1491,9 +1588,28 @@ impl canvas::Program<InteractiveOcrMessage> for OcrOverlay {
                     modifiers,
                     ..
                 } => {
-                    if (modifiers.command() || modifiers.control()) && c.as_str() == "a" {
+                    let char_str = c.as_str();
+                    let is_cmd_or_ctrl = modifiers.command() || modifiers.control();
+
+                    if is_cmd_or_ctrl && char_str == "a" {
                         log::debug!("[INTERACTIVE_OCR] Select all triggered via keyboard shortcut");
                         return Some(canvas::Action::publish(InteractiveOcrMessage::SelectAll));
+                    }
+                    if is_cmd_or_ctrl && char_str == "c" {
+                        log::debug!("[INTERACTIVE_OCR] Copy text triggered via keyboard shortcut");
+                        return Some(canvas::Action::publish(InteractiveOcrMessage::CopySelected));
+                    }
+                    if is_cmd_or_ctrl && char_str == "s" {
+                        log::debug!("[INTERACTIVE_OCR] Save image triggered via keyboard shortcut");
+                        return Some(canvas::Action::publish(
+                            InteractiveOcrMessage::SaveImageToFile,
+                        ));
+                    }
+                    if is_cmd_or_ctrl && char_str == "d" {
+                        log::debug!("[INTERACTIVE_OCR] Copy image triggered via keyboard shortcut");
+                        return Some(canvas::Action::publish(
+                            InteractiveOcrMessage::CopyImageToClipboard,
+                        ));
                     }
                 }
                 _ => {}
