@@ -2,6 +2,18 @@
 
 A desktop application that brings Google Lens-style "Circle to Search" functionality to your Mac, Windows or Linux machine. Select any region of your screen, extract text using OCR, or perform reverse image searches directly from your desktop. This should works on Macos, windows, linux.
 
+## Install (macOS)
+
+```bash
+brew install --cask nkasozi/circle-to-search/circle-to-search-pc
+```
+
+To upgrade later:
+
+```bash
+brew upgrade --cask circle-to-search-pc
+```
+
 ## The Problem
 
 Modern mobile devices offer convenient visual search capabilities like "Circle to Search" on Android, but desktop users lack similar integrated tools. Users need to:
