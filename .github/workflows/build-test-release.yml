@@ -290,6 +290,12 @@ jobs:
 
             app "Circle to Search.app"
 
+            preflight do
+              system_command "/usr/bin/pkill",
+                             args: ["-f", "circle-to-search-pc"],
+                             must_succeed: false
+            end
+
             zap trash: [
               "~/Library/Application Support/com.circle-to-search.app",
               "~/Library/Preferences/com.circle-to-search.app.plist",
