@@ -754,7 +754,10 @@ impl AppOrchestrator {
                     window_id,
                     e
                 );
-                self.status = format!("OCR failed: {}", e);
+                self.status = "Ready - Press Alt+Shift+S to capture".to_string();
+                if let Some(AppWindow::InteractiveOcr(view)) = self.windows.get_mut(&window_id) {
+                    view.set_ocr_failed(e);
+                }
             }
         }
         Task::none()
@@ -849,6 +852,24 @@ impl AppOrchestrator {
                         window::close(window_id),
                         self.update(OrchestratorMessage::CaptureScreen),
                     ]);
+                }
+            }
+            crate::presentation::InteractiveOcrMessage::CancelOcr => {
+                log::info!(
+                    "[ORCHESTRATOR] OCR cancelled by user for window {:?}",
+                    window_id
+                );
+                return window::close(window_id);
+            }
+            crate::presentation::InteractiveOcrMessage::RetryOcr => {
+                log::info!(
+                    "[ORCHESTRATOR] OCR retry requested for window {:?}",
+                    window_id
+                );
+                if let Some(AppWindow::InteractiveOcr(view)) = self.windows.get(&window_id) {
+                    let buffer = view.get_capture_buffer().clone();
+                    self.status = "Processing OCR...".to_string();
+                    return Task::done(OrchestratorMessage::ProcessOcr(window_id, buffer));
                 }
             }
             _ => {}

@@ -1,4 +1,6 @@
-use iced::widget::{button, canvas, container, image, row, stack, text, text_input, tooltip};
+use iced::widget::{
+    button, canvas, column, container, image, row, stack, text, text_input, tooltip,
+};
 use iced::{Alignment, Border, Color, Element, Length, Point, Rectangle, Shadow, Size, Vector};
 
 use crate::core::models::{CaptureBuffer, OcrResult, ThemeMode};
@@ -35,6 +37,13 @@ pub enum SaveState {
     Saving,
     Success(String),
     Failed(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum OcrState {
+    Processing,
+    Failed(String),
+    Completed,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -78,6 +87,10 @@ pub struct InteractiveOcrView {
     draw_mode_enabled: bool,
     show_help_hint: bool,
     toolbar_offset: Vector,
+    ocr_state: OcrState,
+    draw_panel_position: Point,
+    draw_panel_is_dragging: bool,
+    draw_panel_drag_offset: Option<Vector>,
 }
 #[derive(Debug, Clone)]
 pub enum InteractiveOcrMessage {
@@ -116,6 +129,13 @@ pub enum InteractiveOcrMessage {
     #[allow(dead_code)]
     HideSaveToast,
     ToggleToolbarPosition,
+    CancelOcr,
+    #[allow(dead_code)]
+    OcrFailed(String),
+    RetryOcr,
+    DrawPanelDragStarted(f32, f32),
+    DrawPanelMoved(f32, f32),
+    DrawPanelReleased,
 }
 
 impl InteractiveOcrView {
@@ -151,6 +171,10 @@ impl InteractiveOcrView {
             draw_mode_enabled: false,
             show_help_hint: false,
             toolbar_offset: Vector::new(0.0, 0.0),
+            ocr_state: OcrState::Processing,
+            draw_panel_position: Point::new(16.0, 60.0),
+            draw_panel_is_dragging: false,
+            draw_panel_drag_offset: None,
         }
     }
 
@@ -187,10 +211,16 @@ impl InteractiveOcrView {
             self.char_positions.len()
         );
         self.ocr_result = Some(result);
+        self.ocr_state = OcrState::Completed;
 
         if !self.char_positions.is_empty() {
             self.show_help_hint = true;
         }
+    }
+
+    pub fn set_ocr_failed(&mut self, error: String) {
+        log::error!("[INTERACTIVE_OCR] OCR failed: {}", error);
+        self.ocr_state = OcrState::Failed(error);
     }
 
     fn calculate_char_positions(result: &OcrResult) -> Vec<CharPosition> {
@@ -433,6 +463,47 @@ impl InteractiveOcrView {
                     log::debug!("[INTERACTIVE_OCR] Moved toolbar to top");
                 }
             }
+            InteractiveOcrMessage::CancelOcr => {
+                log::info!("[INTERACTIVE_OCR] OCR cancellation requested by user");
+            }
+            InteractiveOcrMessage::OcrFailed(error) => {
+                log::error!("[INTERACTIVE_OCR] OCR failed: {}", error);
+                self.ocr_state = OcrState::Failed(error);
+            }
+            InteractiveOcrMessage::RetryOcr => {
+                log::info!("[INTERACTIVE_OCR] Retrying OCR process");
+                self.ocr_state = OcrState::Processing;
+                self.ocr_result = None;
+                self.char_positions.clear();
+                self.selected_chars.clear();
+            }
+            InteractiveOcrMessage::DrawPanelDragStarted(cursor_x, cursor_y) => {
+                log::debug!(
+                    "[INTERACTIVE_OCR] Draw panel drag started at ({}, {})",
+                    cursor_x,
+                    cursor_y
+                );
+                self.draw_panel_is_dragging = true;
+                self.draw_panel_drag_offset = Some(Vector {
+                    x: cursor_x - self.draw_panel_position.x,
+                    y: cursor_y - self.draw_panel_position.y,
+                });
+            }
+            InteractiveOcrMessage::DrawPanelMoved(cursor_x, cursor_y) => {
+                if self.draw_panel_is_dragging {
+                    if let Some(offset) = self.draw_panel_drag_offset {
+                        self.draw_panel_position = Point {
+                            x: (cursor_x - offset.x).max(0.0),
+                            y: (cursor_y - offset.y).max(0.0),
+                        };
+                    }
+                }
+            }
+            InteractiveOcrMessage::DrawPanelReleased => {
+                log::debug!("[INTERACTIVE_OCR] Draw panel drag ended");
+                self.draw_panel_is_dragging = false;
+                self.draw_panel_drag_offset = None;
+            }
         }
     }
 
@@ -509,14 +580,7 @@ impl InteractiveOcrView {
     }
 
     pub fn render_ui(&self) -> Element<'_, InteractiveOcrMessage> {
-        let image_with_overlay = if let Some(ref ocr_result) = self.ocr_result {
-            self.render_image_with_overlay(ocr_result)
-        } else {
-            image::viewer(self.image_handle.clone())
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into()
-        };
+        let image_with_overlay = self.render_image_with_overlay();
 
         let image_layer = container(image_with_overlay)
             .width(Length::Fill)
@@ -548,27 +612,116 @@ impl InteractiveOcrView {
             format!("❌ Search failed: {}", err)
         } else if self.draw_mode_enabled {
             "🖊️ Draw Mode ON - Click and drag to draw".to_string()
-        } else if let Some(ref result) = self.ocr_result {
-            if self.selected_chars.is_empty() {
-                format!(
-                    "✅ Detected {} words - Click to select text",
-                    result.text_blocks.len()
-                )
-            } else {
-                format!("Selected {} characters", self.selected_chars.len())
-            }
         } else {
-            "Processing OCR...".to_string()
+            match &self.ocr_state {
+                OcrState::Processing => "Processing OCR...".to_string(),
+                OcrState::Failed(_) => String::new(),
+                OcrState::Completed => {
+                    if let Some(ref result) = self.ocr_result {
+                        if self.selected_chars.is_empty() {
+                            format!(
+                                "✅ Detected {} words - Click to select text",
+                                result.text_blocks.len()
+                            )
+                        } else {
+                            format!("Selected {} characters", self.selected_chars.len())
+                        }
+                    } else {
+                        String::new()
+                    }
+                }
+            }
         };
 
-        let status_banner =
-            container(
+        let banner_inner_content: Element<'_, InteractiveOcrMessage> =
+            if matches!(self.ocr_state, OcrState::Processing) {
+                let label =
+                    text("Processing OCR...")
+                        .size(14)
+                        .style(|_theme| iced::widget::text::Style {
+                            color: Some(Color::WHITE),
+                        });
+
+                let cancel_btn =
+                    button(
+                        text("✕")
+                            .size(13)
+                            .style(|_theme| iced::widget::text::Style {
+                                color: Some(Color::WHITE),
+                            }),
+                    )
+                    .padding([2, 8])
+                    .style(|_theme: &iced::Theme, status| {
+                        let bg = match status {
+                            button::Status::Hovered => Color::from_rgba(0.8, 0.2, 0.2, 0.9),
+                            button::Status::Pressed => Color::from_rgba(0.6, 0.1, 0.1, 0.9),
+                            _ => Color::from_rgba(0.5, 0.1, 0.1, 0.8),
+                        };
+                        button::Style {
+                            background: Some(iced::Background::Color(bg)),
+                            text_color: Color::WHITE,
+                            border: Border {
+                                color: Color::from_rgba(0.9, 0.3, 0.3, 0.5),
+                                width: 1.0,
+                                radius: 4.0.into(),
+                            },
+                            shadow: Shadow::default(),
+                            snap: false,
+                        }
+                    })
+                    .on_press(InteractiveOcrMessage::CancelOcr);
+
+                row![label, cancel_btn]
+                    .spacing(10)
+                    .align_y(Alignment::Center)
+                    .into()
+            } else if let OcrState::Failed(ref ocr_error) = self.ocr_state {
+                let error_label = text(format!("❌ OCR Failed — {}", ocr_error))
+                    .size(14)
+                    .style(|_theme| iced::widget::text::Style {
+                        color: Some(Color::from_rgb(1.0, 0.5, 0.5)),
+                    });
+
+                let retry_btn = button(text("↺ Retry OCR").size(13).style(|_theme| {
+                    iced::widget::text::Style {
+                        color: Some(Color::WHITE),
+                    }
+                }))
+                .padding([2, 8])
+                .style(|_theme: &iced::Theme, status| {
+                    let bg = match status {
+                        button::Status::Hovered => Color::from_rgba(0.1, 0.6, 0.1, 0.9),
+                        button::Status::Pressed => Color::from_rgba(0.1, 0.4, 0.1, 0.9),
+                        _ => Color::from_rgba(0.1, 0.45, 0.1, 0.85),
+                    };
+                    button::Style {
+                        background: Some(iced::Background::Color(bg)),
+                        text_color: Color::WHITE,
+                        border: Border {
+                            color: Color::from_rgba(0.3, 0.8, 0.3, 0.5),
+                            width: 1.0,
+                            radius: 4.0.into(),
+                        },
+                        shadow: Shadow::default(),
+                        snap: false,
+                    }
+                })
+                .on_press(InteractiveOcrMessage::RetryOcr);
+
+                row![error_label, retry_btn]
+                    .spacing(10)
+                    .align_y(Alignment::Center)
+                    .into()
+            } else {
                 text(status_text)
                     .size(14)
                     .style(|_theme| iced::widget::text::Style {
                         color: Some(Color::WHITE),
-                    }),
-            )
+                    })
+                    .into()
+            };
+
+        let status_banner = container(banner_inner_content)
             .padding([8, 16])
             .style(|_theme| iced::widget::container::Style {
                 background: Some(iced::Background::Color(Color::from_rgba(
@@ -774,36 +927,88 @@ impl InteractiveOcrView {
             );
         }
 
-        let draw_toolbar =
-            container(draw_row)
-                .padding([6, 10])
-                .style(|_theme| iced::widget::container::Style {
-                    background: Some(iced::Background::Color(Color::from_rgba(
-                        0.1, 0.1, 0.1, 0.85,
-                    ))),
-                    border: Border {
-                        color: Color::from_rgba(0.4, 0.4, 0.4, 0.5),
-                        width: 1.0,
-                        radius: 8.0.into(),
+        let draw_handle_strip =
+            container(
+                text("⠿  drag  ⠿")
+                    .size(11)
+                    .style(|_theme| iced::widget::text::Style {
+                        color: Some(Color::from_rgba(0.55, 0.55, 0.55, 0.8)),
+                    }),
+            )
+            .padding([5, 10])
+            .width(Length::Fill)
+            .style(|_theme| iced::widget::container::Style {
+                background: Some(iced::Background::Color(Color::from_rgba(
+                    0.07, 0.07, 0.07, 0.6,
+                ))),
+                border: Border {
+                    color: Color::TRANSPARENT,
+                    width: 0.0,
+                    radius: iced::border::Radius {
+                        top_left: 8.0,
+                        top_right: 8.0,
+                        bottom_left: 0.0,
+                        bottom_right: 0.0,
                     },
-                    shadow: Shadow {
-                        color: Color::from_rgba(0.0, 0.0, 0.0, 0.4),
-                        offset: Vector::new(0.0, 2.0),
-                        blur_radius: 8.0,
-                    },
-                    text_color: None,
-                    snap: false,
-                });
+                },
+                shadow: Shadow::default(),
+                text_color: None,
+                snap: false,
+            });
 
+        let draw_panel_body = container(draw_row)
+            .padding([6, 10])
+            .width(Length::Shrink)
+            .style(|_theme| iced::widget::container::Style {
+                background: Some(iced::Background::Color(Color::from_rgba(
+                    0.1, 0.1, 0.1, 0.85,
+                ))),
+                border: Border {
+                    color: Color::TRANSPARENT,
+                    width: 0.0,
+                    radius: iced::border::Radius {
+                        top_left: 0.0,
+                        top_right: 0.0,
+                        bottom_left: 8.0,
+                        bottom_right: 8.0,
+                    },
+                },
+                shadow: Shadow::default(),
+                text_color: None,
+                snap: false,
+            });
+
+        let draw_toolbar = container(column![draw_handle_strip, draw_panel_body].spacing(0))
+            .width(Length::Shrink)
+            .style(|_theme| iced::widget::container::Style {
+                background: None,
+                border: Border {
+                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.5),
+                    width: 1.0,
+                    radius: 8.0.into(),
+                },
+                shadow: Shadow {
+                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.4),
+                    offset: Vector::new(0.0, 2.0),
+                    blur_radius: 8.0,
+                },
+                text_color: None,
+                snap: false,
+            });
+
+        let draw_panel_x = self.draw_panel_position.x;
+        let draw_panel_y = self.draw_panel_position.y;
         let draw_toolbar_positioned = container(draw_toolbar)
             .width(Length::Fill)
+            .height(Length::Fill)
             .padding(iced::Padding {
-                top: 16.0,
+                top: draw_panel_y,
+                left: draw_panel_x,
                 right: 0.0,
                 bottom: 0.0,
-                left: 16.0,
             })
-            .align_x(Alignment::Start);
+            .align_x(Alignment::Start)
+            .align_y(Alignment::Start);
 
         layers.push(draw_toolbar_positioned.into());
 
@@ -1409,10 +1614,7 @@ impl InteractiveOcrView {
         }
     }
 
-    fn render_image_with_overlay(
-        &self,
-        _ocr_result: &OcrResult,
-    ) -> Element<'_, InteractiveOcrMessage> {
+    fn render_image_with_overlay(&self) -> Element<'_, InteractiveOcrMessage> {
         let image_viewer = image::viewer(self.image_handle.clone())
             .width(Length::Fill)
             .height(Length::Fill);
@@ -1428,6 +1630,8 @@ impl InteractiveOcrView {
             draw_color: self.draw_color,
             draw_width: self.draw_width,
             draw_mode_enabled: self.draw_mode_enabled,
+            draw_panel_position: self.draw_panel_position,
+            draw_panel_is_dragging: self.draw_panel_is_dragging,
         };
 
         let overlay_canvas =
@@ -1453,6 +1657,8 @@ struct OcrOverlay {
     draw_color: Color,
     draw_width: f32,
     draw_mode_enabled: bool,
+    draw_panel_position: Point,
+    draw_panel_is_dragging: bool,
 }
 
 impl canvas::Program<InteractiveOcrMessage> for OcrOverlay {
@@ -1659,6 +1865,21 @@ impl canvas::Program<InteractiveOcrMessage> for OcrOverlay {
             iced::Event::Mouse(mouse_event) => match mouse_event {
                 iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left) => {
                     if let Some(cursor_position) = cursor.position_in(bounds) {
+                        let handle_strip_rect =
+                            Rectangle::new(self.draw_panel_position, Size::new(300.0, 26.0));
+                        if handle_strip_rect.contains(cursor_position) {
+                            log::debug!(
+                                "[OCR_OVERLAY] Draw panel drag started at ({}, {})",
+                                cursor_position.x,
+                                cursor_position.y
+                            );
+                            return Some(canvas::Action::publish(
+                                InteractiveOcrMessage::DrawPanelDragStarted(
+                                    cursor_position.x,
+                                    cursor_position.y,
+                                ),
+                            ));
+                        }
                         if self.draw_mode_enabled {
                             let rel_x = (cursor_position.x - offset_x) / scale_x;
                             let rel_y = (cursor_position.y - offset_y) / scale_y;
@@ -1694,6 +1915,14 @@ impl canvas::Program<InteractiveOcrMessage> for OcrOverlay {
                 }
                 iced::mouse::Event::CursorMoved { .. } => {
                     if let Some(cursor_position) = cursor.position_in(bounds) {
+                        if self.draw_panel_is_dragging {
+                            return Some(canvas::Action::publish(
+                                InteractiveOcrMessage::DrawPanelMoved(
+                                    cursor_position.x,
+                                    cursor_position.y,
+                                ),
+                            ));
+                        }
                         if self.is_drawing {
                             let rel_x = (cursor_position.x - offset_x) / scale_x;
                             let rel_y = (cursor_position.y - offset_y) / scale_y;
@@ -1723,6 +1952,11 @@ impl canvas::Program<InteractiveOcrMessage> for OcrOverlay {
                     }
                 }
                 iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left) => {
+                    if self.draw_panel_is_dragging {
+                        return Some(canvas::Action::publish(
+                            InteractiveOcrMessage::DrawPanelReleased,
+                        ));
+                    }
                     if self.is_drawing {
                         return Some(canvas::Action::publish(InteractiveOcrMessage::EndDrawing));
                     } else {
