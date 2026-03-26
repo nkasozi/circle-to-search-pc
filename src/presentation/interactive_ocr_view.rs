@@ -712,6 +712,49 @@ impl InteractiveOcrView {
                     .spacing(10)
                     .align_y(Alignment::Center)
                     .into()
+            } else if matches!(self.ocr_state, OcrState::Completed)
+                && self.selected_chars.is_empty()
+            {
+                let completed_label =
+                    text(status_text)
+                        .size(14)
+                        .style(|_theme| iced::widget::text::Style {
+                            color: Some(Color::WHITE),
+                        });
+
+                let retry_ocr_btn =
+                    button(
+                        text("↺")
+                            .size(14)
+                            .style(|_theme| iced::widget::text::Style {
+                                color: Some(Color::from_rgba(0.7, 0.7, 0.7, 0.9)),
+                            }),
+                    )
+                    .padding([2, 6])
+                    .style(|_theme: &iced::Theme, status| {
+                        let bg = match status {
+                            button::Status::Hovered => Color::from_rgba(0.3, 0.3, 0.3, 0.9),
+                            button::Status::Pressed => Color::from_rgba(0.2, 0.2, 0.2, 0.9),
+                            _ => Color::from_rgba(0.15, 0.15, 0.15, 0.0),
+                        };
+                        button::Style {
+                            background: Some(iced::Background::Color(bg)),
+                            text_color: Color::WHITE,
+                            border: Border {
+                                color: Color::from_rgba(0.4, 0.4, 0.4, 0.4),
+                                width: 1.0,
+                                radius: 4.0.into(),
+                            },
+                            shadow: Shadow::default(),
+                            snap: false,
+                        }
+                    })
+                    .on_press(InteractiveOcrMessage::RetryOcr);
+
+                row![completed_label, retry_ocr_btn]
+                    .spacing(8)
+                    .align_y(Alignment::Center)
+                    .into()
             } else {
                 text(status_text)
                     .size(14)
