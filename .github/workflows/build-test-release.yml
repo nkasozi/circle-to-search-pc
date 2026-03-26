@@ -263,12 +263,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Checkout Homebrew tap
-        uses: actions/checkout@v4
-        with:
-          repository: nkasozi/homebrew-circle-to-search
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          path: homebrew-tap
+      - name: Clone or init Homebrew tap
+        run: |
+          TAP_URL="https://x-access-token:${{ secrets.HOMEBREW_TAP_TOKEN }}@github.com/nkasozi/homebrew-circle-to-search.git"
+          git clone "${TAP_URL}" homebrew-tap || true
+          if [ ! -d homebrew-tap/.git ]; then
+            mkdir -p homebrew-tap
+            cd homebrew-tap
+            git init
+            git remote add origin "${TAP_URL}"
+          fi
 
       - name: Render and push cask formula
         run: |
@@ -297,6 +301,7 @@ jobs:
           cd homebrew-tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout main 2>/dev/null || git checkout --orphan main
           git add Casks/circle-to-search-pc.rb
           git commit -m "chore: update circle-to-search-pc to v${RELEASE_VERSION}"
-          git push
+          git push --set-upstream origin main
