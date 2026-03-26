@@ -294,6 +294,9 @@ jobs:
               system_command "/usr/bin/pkill",
                              args: ["-f", "circle-to-search-pc"],
                              must_succeed: false
+              system_command "/bin/rm",
+                             args: ["-rf", "/Applications/Circle to Search.app"],
+                             must_succeed: false
             end
 
             zap trash: [
