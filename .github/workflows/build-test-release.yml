@@ -299,6 +299,12 @@ jobs:
                              must_succeed: false
             end
 
+            postflight do
+              system_command "/usr/bin/xattr",
+                             args: ["-cr", "/Applications/Circle to Search.app"],
+                             must_succeed: false
+            end
+
             zap trash: [
               "~/Library/Application Support/com.circle-to-search.app",
               "~/Library/Preferences/com.circle-to-search.app.plist",
