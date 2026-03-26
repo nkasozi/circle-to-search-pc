@@ -160,56 +160,26 @@ jobs:
       - name: Create DMG (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          mkdir -p dmg-contents/Circle\ to\ Search\ PC.app/Contents/MacOS
-          mkdir -p dmg-contents/Circle\ to\ Search\ PC.app/Contents/Resources/tessdata
+          APP_BUNDLE="Circle to Search.app"
+          mkdir -p "dmg-contents/${APP_BUNDLE}/Contents/MacOS"
+          mkdir -p "dmg-contents/${APP_BUNDLE}/Contents/Resources/tessdata"
 
-          cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} dmg-contents/Circle\ to\ Search\ PC.app/Contents/MacOS/
-          chmod +x dmg-contents/Circle\ to\ Search\ PC.app/Contents/MacOS/${{ matrix.artifact_name }}
-          cp tessdata/eng.traineddata dmg-contents/Circle\ to\ Search\ PC.app/Contents/Resources/tessdata/
+          cp "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}" \
+            "dmg-contents/${APP_BUNDLE}/Contents/MacOS/"
+          chmod +x "dmg-contents/${APP_BUNDLE}/Contents/MacOS/${{ matrix.artifact_name }}"
 
-          cat > dmg-contents/Circle\ to\ Search\ PC.app/Contents/Info.plist << EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleExecutable</key>
-              <string>circle-to-search-pc</string>
-              <key>CFBundleIdentifier</key>
-              <string>com.circle-to-search-pc</string>
-              <key>CFBundleName</key>
-              <string>Circle to Search PC</string>
-              <key>CFBundleVersion</key>
-              <string>1.0</string>
-              <key>CFBundlePackageType</key>
-              <string>APPL</string>
-              <key>LSMinimumSystemVersion</key>
-              <string>10.13</string>
-          </dict>
-          </plist>
-          EOF
+          cp Info.plist "dmg-contents/${APP_BUNDLE}/Contents/"
+          cp tessdata/eng.traineddata "dmg-contents/${APP_BUNDLE}/Contents/Resources/tessdata/"
+          cp assets/icons/app_icon.icns "dmg-contents/${APP_BUNDLE}/Contents/Resources/"
 
-          cat > dmg-contents/INSTALL.txt << EOF
-          Circle to Search PC Installation Instructions
-          =============================================
+          hdiutil create \
+            -volname "Circle to Search" \
+            -srcfolder dmg-contents \
+            -ov \
+            -format UDZO \
+            "${{ matrix.asset_name }}"
 
-          macOS may show a warning that this app is "damaged" because it's not code-signed.
-
-          To install and run:
-
-          1. Copy "Circle to Search PC.app" to your Applications folder
-          2. Open Terminal and run:
-             xattr -cr "/Applications/Circle to Search PC.app"
-          3. Right-click the app and select "Open"
-          4. Click "Open" in the security dialog
-
-          After the first launch, you can open it normally from Applications.
-
-          Alternatively, you can disable Gatekeeper temporarily:
-             sudo spctl --master-disable
-          (Re-enable after installation with: sudo spctl --master-enable)
-          EOF
-
-          hdiutil create -volname "Circle to Search PC" -srcfolder dmg-contents -ov -format UDZO ${{ matrix.asset_name }}
+          shasum -a 256 "${{ matrix.asset_name }}" > "${{ matrix.asset_name }}.sha256"
 
       - name: Create Windows Installer
         if: matrix.os == 'windows-latest'
@@ -264,3 +234,69 @@ jobs:
           files: ${{ matrix.asset_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload SHA256 (macOS)
+        if: matrix.os == 'macos-latest'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ matrix.asset_name }}.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-homebrew-tap:
+    name: Update Homebrew Tap
+    needs: build-and-release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve macOS release SHA256
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ASSET="circle-to-search-pc-macos-aarch64.dmg"
+          SHA256=$(gh release download "v${VERSION}" \
+            --repo nkasozi/circle-to-search-pc \
+            --pattern "${ASSET}.sha256" \
+            --output - | awk '{print $1}')
+          echo "RELEASE_VERSION=${VERSION}" >> $GITHUB_ENV
+          echo "RELEASE_SHA256=${SHA256}" >> $GITHUB_ENV
+          echo "RELEASE_ASSET=${ASSET}" >> $GITHUB_ENV
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: nkasozi/homebrew-circle-to-search
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Render and push cask formula
+        run: |
+          mkdir -p homebrew-tap/Casks
+          cat > homebrew-tap/Casks/circle-to-search-pc.rb << EOF
+          cask "circle-to-search-pc" do
+            version "${RELEASE_VERSION}"
+            sha256 "${RELEASE_SHA256}"
+
+            url "https://github.com/nkasozi/circle-to-search-pc/releases/download/v${RELEASE_VERSION}/${RELEASE_ASSET}"
+
+            name "Circle to Search"
+            desc "Circle-to-search for desktop — Google Lens search from any screen region"
+            homepage "https://github.com/nkasozi/circle-to-search-pc"
+
+            app "Circle to Search.app"
+
+            zap trash: [
+              "~/Library/Application Support/com.circle-to-search.app",
+              "~/Library/Preferences/com.circle-to-search.app.plist",
+              "~/Library/Caches/com.circle-to-search.app",
+            ]
+          end
+          EOF
+
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/circle-to-search-pc.rb
+          git commit -m "chore: update circle-to-search-pc to v${RELEASE_VERSION}"
+          git push

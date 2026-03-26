@@ -3,6 +3,9 @@ name = "circle-to-search-pc"
 version = "0.1.0"
 edition = "2021"
 description = "Circle to Search for Desktop"
+license = "MIT"
+repository = "https://github.com/nkasozi/circle-to-search-pc"
+homepage = "https://github.com/nkasozi/circle-to-search-pc"
 build = "build.rs"
 
 [lints.rust]
