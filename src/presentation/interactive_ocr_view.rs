@@ -132,6 +132,7 @@ pub enum InteractiveOcrMessage {
     ToggleToolbarPosition,
     StartOcr,
     CancelOcr,
+    ClearOcrOverlay,
     #[allow(dead_code)]
     OcrFailed(String),
     RetryOcr,
@@ -472,6 +473,13 @@ impl InteractiveOcrView {
             InteractiveOcrMessage::CancelOcr => {
                 log::info!("[INTERACTIVE_OCR] OCR cancellation requested by user");
             }
+            InteractiveOcrMessage::ClearOcrOverlay => {
+                log::info!("[INTERACTIVE_OCR] User cleared OCR overlay");
+                self.ocr_result = None;
+                self.char_positions.clear();
+                self.selected_chars.clear();
+                self.ocr_state = OcrState::Idle;
+            }
             InteractiveOcrMessage::OcrFailed(error) => {
                 log::error!("[INTERACTIVE_OCR] OCR failed: {}", error);
                 self.ocr_state = OcrState::Failed(error);
@@ -798,7 +806,36 @@ impl InteractiveOcrView {
                     })
                     .on_press(InteractiveOcrMessage::RetryOcr);
 
-                row![completed_label, retry_ocr_btn]
+                let clear_ocr_btn =
+                    button(
+                        text("✕")
+                            .size(13)
+                            .style(|_theme| iced::widget::text::Style {
+                                color: Some(Color::from_rgba(0.7, 0.7, 0.7, 0.9)),
+                            }),
+                    )
+                    .padding([2, 6])
+                    .style(|_theme: &iced::Theme, status| {
+                        let bg = match status {
+                            button::Status::Hovered => Color::from_rgba(0.5, 0.1, 0.1, 0.9),
+                            button::Status::Pressed => Color::from_rgba(0.4, 0.05, 0.05, 0.9),
+                            _ => Color::from_rgba(0.15, 0.15, 0.15, 0.0),
+                        };
+                        button::Style {
+                            background: Some(iced::Background::Color(bg)),
+                            text_color: Color::WHITE,
+                            border: Border {
+                                color: Color::from_rgba(0.4, 0.4, 0.4, 0.4),
+                                width: 1.0,
+                                radius: 4.0.into(),
+                            },
+                            shadow: Shadow::default(),
+                            snap: false,
+                        }
+                    })
+                    .on_press(InteractiveOcrMessage::ClearOcrOverlay);
+
+                row![completed_label, retry_ocr_btn, clear_ocr_btn]
                     .spacing(8)
                     .align_y(Alignment::Center)
                     .into()

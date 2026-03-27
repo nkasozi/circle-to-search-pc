@@ -145,10 +145,13 @@ jobs:
           cat > AppDir/usr/share/applications/circle-to-search-pc.desktop << EOF
           [Desktop Entry]
           Type=Application
-          Name=Circle to Search PC
+          Name=Circle to Search
+          GenericName=Visual Search Tool
+          Comment=Google Lens-style circle-to-search for desktop
           Exec=circle-to-search-pc
           Icon=circle-to-search-pc
-          Categories=Utility;
+          Categories=Utility;Graphics;
+          Keywords=circle-to-search;google lens;ocr;screen capture;visual search;image search;reverse image search;
           EOF
 
           mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
@@ -214,8 +217,12 @@ jobs:
           Source: "installer_files\eng.traineddata"; DestDir: "{app}\tessdata"; Flags: ignoreversion
 
           [Icons]
-          Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-          Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+          Name: "{group}\Circle to Search"; Filename: "{app}\{#MyAppExeName}"
+          Name: "{group}\Circle to Search PC"; Filename: "{app}\{#MyAppExeName}"
+          Name: "{autodesktop}\Circle to Search"; Filename: "{app}\{#MyAppExeName}"
+
+          [Registry]
+          Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}_is1"; ValueType: string; ValueName: "Keywords"; ValueData: "circle-to-search google-lens ocr visual-search screen-capture image-search reverse-image-search"
 
           [Run]
           Filename: "{app}\{#MyAppExeName}"; Description: "Launch Circle to Search PC"; Flags: nowait postinstall skipifsilent
