@@ -25,12 +25,10 @@ impl GoogleLensSearchProvider {
         let encoded_url = urlencoding::encode(image_url);
         let mut url = self.search_url_template.replace("{}", &encoded_url);
 
-        if let Some(q) = query {
-            if !q.trim().is_empty() {
-                let encoded_query = urlencoding::encode(q.trim());
-                url.push_str("&q=");
-                url.push_str(&encoded_query);
-            }
+        if let Some(q) = query.filter(|q| !q.trim().is_empty()) {
+            let encoded_query = urlencoding::encode(q.trim());
+            url.push_str("&q=");
+            url.push_str(&encoded_query);
         }
 
         url

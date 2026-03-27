@@ -7,5 +7,5 @@ mod window_info;
 pub use capture_buffer::CaptureBuffer;
 pub use ocr::{DetectedText, DetectedWord, OcrResult};
 pub use screen_region::ScreenRegion;
-pub use user_settings::{ThemeMode, UserSettings};
+pub use user_settings::{ImageHostingAuthMode, ImageUploadHttpMethod, ThemeMode, UserSettings};
 pub use window_info::WindowInfo;

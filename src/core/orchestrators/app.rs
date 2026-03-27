@@ -16,13 +16,15 @@ use crate::ports::{
 
 struct DummyOcrService;
 
+const OCR_SERVICE_NOT_INITIALIZED_ERROR: &str = "OCR service not initialized yet";
+
 #[async_trait::async_trait]
 impl OcrService for DummyOcrService {
     async fn extract_text_from_image(
         &self,
         _image: &image::DynamicImage,
     ) -> anyhow::Result<OcrResult> {
-        anyhow::bail!("OCR service not initialized yet")
+        anyhow::bail!("{}", OCR_SERVICE_NOT_INITIALIZED_ERROR)
     }
 }
 
@@ -70,7 +72,8 @@ impl CircleApp {
 
         let onboarding_complete = settings.onboarding_complete;
 
-        let image_hosting_service = Arc::new(ImgbbImageHostingService::new());
+        let image_hosting_service =
+            Arc::new(ImgbbImageHostingService::from_user_settings(&settings));
         let reverse_image_search_provider = Arc::new(GoogleLensSearchProvider::new(
             image_hosting_service,
             settings.image_search_url_template.clone(),
@@ -154,11 +157,14 @@ impl CircleApp {
         use iced::window;
 
         let mut subscriptions = vec![
-            iced::event::listen_with(|event, _status, id| {
-                if let iced::Event::Window(window::Event::Closed) = event {
-                    return Some(OrchestratorMessage::WindowClosed(id));
+            iced::event::listen_with(|event, _status, id| match event {
+                iced::Event::Window(window::Event::Closed) => {
+                    Some(OrchestratorMessage::WindowClosed(id))
                 }
-                None
+                iced::Event::Window(window::Event::Focused) => {
+                    Some(OrchestratorMessage::WindowFocused(id))
+                }
+                _ => None,
             }),
             iced::Subscription::run(|| {
                 iced::stream::channel(

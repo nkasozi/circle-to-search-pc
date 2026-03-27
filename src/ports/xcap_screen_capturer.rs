@@ -8,6 +8,10 @@ use crate::global_constants::{
 };
 
 const THUMBNAIL_MAX_SIZE: u32 = 120;
+const XCAP_ERROR_FAILED_TO_LIST_WINDOWS: &str = "Failed to list windows";
+const XCAP_ERROR_WINDOW_NOT_FOUND_PREFIX: &str = "Window with id ";
+const XCAP_ERROR_WINDOW_NOT_FOUND_SUFFIX: &str = " not found";
+const XCAP_ERROR_FAILED_TO_CAPTURE_WINDOW_PREFIX: &str = "Failed to capture window ";
 
 pub struct XcapScreenCapturer;
 
@@ -88,17 +92,21 @@ impl XcapScreenCapturer {
     }
 
     fn find_window_by_id(&self, window_id: u32) -> Result<xcap::Window> {
-        let windows = xcap::Window::all().with_context(|| "Failed to list windows")?;
+        let windows = xcap::Window::all().with_context(|| XCAP_ERROR_FAILED_TO_LIST_WINDOWS)?;
 
         for window in windows {
-            if let Ok(id) = window.id() {
-                if id == window_id {
-                    return Ok(window);
-                }
+            match window.id() {
+                Ok(id) if id == window_id => return Ok(window),
+                _ => {}
             }
         }
 
-        anyhow::bail!("Window with id {} not found", window_id)
+        anyhow::bail!(
+            "{}{}{}",
+            XCAP_ERROR_WINDOW_NOT_FOUND_PREFIX,
+            window_id,
+            XCAP_ERROR_WINDOW_NOT_FOUND_SUFFIX
+        )
     }
 }
 
@@ -122,7 +130,7 @@ impl ScreenCapturer for XcapScreenCapturer {
     fn list_capturable_windows(&self) -> Result<Vec<WindowInfo>> {
         log::debug!("{} listing capturable windows", LOG_TAG_CAPTURE);
 
-        let windows = xcap::Window::all().with_context(|| "Failed to list windows")?;
+        let windows = xcap::Window::all().with_context(|| XCAP_ERROR_FAILED_TO_LIST_WINDOWS)?;
         let mut window_infos = Vec::new();
 
         for window in windows {
@@ -188,9 +196,12 @@ impl ScreenCapturer for XcapScreenCapturer {
         log::debug!("{} capturing window with id {}", LOG_TAG_CAPTURE, window_id);
 
         let window = self.find_window_by_id(window_id)?;
-        let captured_image = window
-            .capture_image()
-            .with_context(|| format!("Failed to capture window {}", window_id))?;
+        let captured_image = window.capture_image().with_context(|| {
+            format!(
+                "{}{}",
+                XCAP_ERROR_FAILED_TO_CAPTURE_WINDOW_PREFIX, window_id
+            )
+        })?;
 
         let monitor = window.current_monitor().ok();
         let scale_factor = monitor

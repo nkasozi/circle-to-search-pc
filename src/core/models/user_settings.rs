@@ -27,9 +27,73 @@ impl Default for ThemeMode {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ImageHostingAuthMode {
+    Query,
+    Header,
+}
+
+impl fmt::Display for ImageHostingAuthMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ImageHostingAuthMode::Query => write!(f, "Query"),
+            ImageHostingAuthMode::Header => write!(f, "Header"),
+        }
+    }
+}
+
+impl Default for ImageHostingAuthMode {
+    fn default() -> Self {
+        ImageHostingAuthMode::Query
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ImageUploadHttpMethod {
+    Post,
+    Get,
+    Put,
+}
+
+impl fmt::Display for ImageUploadHttpMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ImageUploadHttpMethod::Post => write!(f, "POST"),
+            ImageUploadHttpMethod::Get => write!(f, "GET"),
+            ImageUploadHttpMethod::Put => write!(f, "PUT"),
+        }
+    }
+}
+
+impl Default for ImageUploadHttpMethod {
+    fn default() -> Self {
+        ImageUploadHttpMethod::Post
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserSettings {
     pub image_search_url_template: String,
+    #[serde(default = "UserSettings::default_image_hosting_provider_url")]
+    pub image_hosting_provider_url: String,
+    #[serde(default)]
+    pub image_hosting_auth_mode: ImageHostingAuthMode,
+    #[serde(
+        rename = "image_hosting_api_key_name",
+        default = "UserSettings::default_image_hosting_public_key_name"
+    )]
+    pub image_hosting_public_key_name: String,
+    #[serde(
+        rename = "image_hosting_api_key_value",
+        default = "UserSettings::default_image_hosting_public_key_value"
+    )]
+    pub image_hosting_public_key_value: String,
+    #[serde(default = "UserSettings::default_image_hosting_expiration_seconds")]
+    pub image_hosting_expiration_seconds: String,
+    #[serde(default)]
+    pub image_hosting_http_method: ImageUploadHttpMethod,
+    #[serde(default = "UserSettings::default_image_hosting_image_field_name")]
+    pub image_hosting_image_field_name: String,
     pub capture_hotkey: String,
     pub theme_mode: ThemeMode,
     #[serde(default)]
@@ -48,6 +112,13 @@ impl Default for UserSettings {
     fn default() -> Self {
         Self {
             image_search_url_template: global_constants::DEFAULT_IMAGE_SEARCH_URL.to_string(),
+            image_hosting_provider_url: Self::default_image_hosting_provider_url(),
+            image_hosting_auth_mode: ImageHostingAuthMode::default(),
+            image_hosting_public_key_name: Self::default_image_hosting_public_key_name(),
+            image_hosting_public_key_value: Self::default_image_hosting_public_key_value(),
+            image_hosting_expiration_seconds: Self::default_image_hosting_expiration_seconds(),
+            image_hosting_http_method: ImageUploadHttpMethod::default(),
+            image_hosting_image_field_name: Self::default_image_hosting_image_field_name(),
             capture_hotkey: global_constants::DEFAULT_CAPTURE_HOTKEY.to_string(),
             theme_mode: ThemeMode::default(),
             run_in_system_tray: true,
@@ -60,6 +131,31 @@ impl Default for UserSettings {
 }
 
 impl UserSettings {
+    pub fn default_image_hosting_provider_url() -> String {
+        global_constants::IMGBB_API_URL.to_string()
+    }
+
+    pub fn default_image_hosting_public_key_name() -> String {
+        global_constants::IMGBB_PUBLIC_KEY_QUERY_NAME.to_string()
+    }
+
+    pub fn default_image_hosting_public_key_value() -> String {
+        std::env::var(global_constants::IMGBB_PUBLIC_KEY_ENV_VAR_NAME)
+            .unwrap_or_else(|_| global_constants::IMGBB_PUBLIC_KEY.to_string())
+    }
+
+    pub fn is_using_default_public_key(&self) -> bool {
+        self.image_hosting_public_key_value == Self::default_image_hosting_public_key_value()
+    }
+
+    pub fn default_image_hosting_expiration_seconds() -> String {
+        global_constants::IMGBB_EXPIRATION_SECONDS.to_string()
+    }
+
+    pub fn default_image_hosting_image_field_name() -> String {
+        global_constants::IMGBB_IMAGE_FIELD_NAME.to_string()
+    }
+
     pub fn default_screenshot_save_location() -> String {
         dirs::download_dir()
             .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
@@ -251,6 +347,26 @@ mod tests {
             global_constants::DEFAULT_IMAGE_SEARCH_URL
         );
         assert_eq!(
+            settings.image_hosting_provider_url,
+            global_constants::IMGBB_API_URL
+        );
+        assert_eq!(
+            settings.image_hosting_public_key_name,
+            global_constants::IMGBB_PUBLIC_KEY_QUERY_NAME
+        );
+        assert_eq!(
+            settings.image_hosting_public_key_value,
+            global_constants::IMGBB_PUBLIC_KEY
+        );
+        assert_eq!(
+            settings.image_hosting_expiration_seconds,
+            global_constants::IMGBB_EXPIRATION_SECONDS
+        );
+        assert_eq!(
+            settings.image_hosting_auth_mode,
+            ImageHostingAuthMode::Query
+        );
+        assert_eq!(
             settings.capture_hotkey,
             global_constants::DEFAULT_CAPTURE_HOTKEY
         );
@@ -264,6 +380,13 @@ mod tests {
     fn test_user_settings_serialization() {
         let settings = UserSettings {
             image_search_url_template: "https://example.com/{IMAGE_URL}".to_string(),
+            image_hosting_provider_url: "https://api.example.com/upload".to_string(),
+            image_hosting_auth_mode: ImageHostingAuthMode::Header,
+            image_hosting_public_key_name: "X-API-Key".to_string(),
+            image_hosting_public_key_value: "example-key".to_string(),
+            image_hosting_expiration_seconds: "300".to_string(),
+            image_hosting_http_method: ImageUploadHttpMethod::Post,
+            image_hosting_image_field_name: "image".to_string(),
             capture_hotkey: "ctrl+shift+a".to_string(),
             theme_mode: ThemeMode::Light,
             run_in_system_tray: true,
@@ -279,6 +402,26 @@ mod tests {
         assert_eq!(
             deserialized.image_search_url_template,
             settings.image_search_url_template
+        );
+        assert_eq!(
+            deserialized.image_hosting_provider_url,
+            settings.image_hosting_provider_url
+        );
+        assert_eq!(
+            deserialized.image_hosting_auth_mode,
+            settings.image_hosting_auth_mode
+        );
+        assert_eq!(
+            deserialized.image_hosting_public_key_name,
+            settings.image_hosting_public_key_name
+        );
+        assert_eq!(
+            deserialized.image_hosting_public_key_value,
+            settings.image_hosting_public_key_value
+        );
+        assert_eq!(
+            deserialized.image_hosting_expiration_seconds,
+            settings.image_hosting_expiration_seconds
         );
         assert_eq!(deserialized.capture_hotkey, settings.capture_hotkey);
         assert_eq!(deserialized.theme_mode, settings.theme_mode);
@@ -300,6 +443,26 @@ mod tests {
 
         let settings: UserSettings = serde_json::from_str(json).unwrap();
         assert!(!settings.run_in_system_tray);
+        assert_eq!(
+            settings.image_hosting_provider_url,
+            global_constants::IMGBB_API_URL
+        );
+        assert_eq!(
+            settings.image_hosting_auth_mode,
+            ImageHostingAuthMode::Query
+        );
+        assert_eq!(
+            settings.image_hosting_public_key_name,
+            global_constants::IMGBB_PUBLIC_KEY_QUERY_NAME
+        );
+        assert_eq!(
+            settings.image_hosting_public_key_value,
+            global_constants::IMGBB_PUBLIC_KEY
+        );
+        assert_eq!(
+            settings.image_hosting_expiration_seconds,
+            global_constants::IMGBB_EXPIRATION_SECONDS
+        );
     }
 
     #[test]
@@ -309,6 +472,13 @@ mod tests {
 
         let original_settings = UserSettings {
             image_search_url_template: "https://test.com/{IMAGE_URL}".to_string(),
+            image_hosting_provider_url: "https://api.test.com/upload".to_string(),
+            image_hosting_auth_mode: ImageHostingAuthMode::Header,
+            image_hosting_public_key_name: "X-Test-Key".to_string(),
+            image_hosting_public_key_value: "test-key".to_string(),
+            image_hosting_expiration_seconds: "120".to_string(),
+            image_hosting_http_method: ImageUploadHttpMethod::Post,
+            image_hosting_image_field_name: "image".to_string(),
             capture_hotkey: "ctrl+shift+t".to_string(),
             theme_mode: ThemeMode::Light,
             run_in_system_tray: true,
@@ -328,6 +498,26 @@ mod tests {
         assert_eq!(
             loaded_settings.image_search_url_template,
             original_settings.image_search_url_template
+        );
+        assert_eq!(
+            loaded_settings.image_hosting_provider_url,
+            original_settings.image_hosting_provider_url
+        );
+        assert_eq!(
+            loaded_settings.image_hosting_auth_mode,
+            original_settings.image_hosting_auth_mode
+        );
+        assert_eq!(
+            loaded_settings.image_hosting_public_key_name,
+            original_settings.image_hosting_public_key_name
+        );
+        assert_eq!(
+            loaded_settings.image_hosting_public_key_value,
+            original_settings.image_hosting_public_key_value
+        );
+        assert_eq!(
+            loaded_settings.image_hosting_expiration_seconds,
+            original_settings.image_hosting_expiration_seconds
         );
         assert_eq!(
             loaded_settings.capture_hotkey,

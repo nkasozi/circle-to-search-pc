@@ -67,17 +67,18 @@ pub mod macos {
     }
 
     #[allow(dead_code)]
-    pub fn activate_app_ignoring_other_apps() {
+    pub fn activate_app_ignoring_other_apps() -> bool {
         log::info!("{} Activating app (bringing to front)", LOG_TAG);
 
         unsafe {
             let app = NSApp();
             if app == nil as *mut Object {
                 log::error!("{} Failed to get NSApplication", LOG_TAG);
-                return;
+                return false;
             }
 
             app.activateIgnoringOtherApps_(true);
+            true
         }
     }
 }
@@ -104,5 +105,7 @@ pub mod macos {
         true
     }
 
-    pub fn activate_app_ignoring_other_apps() {}
+    pub fn activate_app_ignoring_other_apps() -> bool {
+        false
+    }
 }

@@ -1,21 +1,34 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use iced::widget::{button, column, container, row, text, Space};
+use iced::widget::{container, text, Space};
 use iced::window::{self, Id};
-use iced::{Alignment, Background, Color, Element, Length, Point, Rectangle, Size, Task};
+use iced::{Element, Point, Rectangle, Size, Task};
 use mouse_position::mouse_position::Mouse;
 
-use crate::adapters::{auto_launch, macos_permissions};
 use crate::core::interfaces::adapters::{OcrService, ReverseImageSearchProvider};
 use crate::core::interfaces::ports::{MousePositionProvider, ScreenCapturer};
 use crate::core::models::{
-    CaptureBuffer, OcrResult, ScreenRegion, ThemeMode, UserSettings, WindowInfo,
+    CaptureBuffer, ImageHostingAuthMode, ImageUploadHttpMethod, OcrResult, ScreenRegion, ThemeMode,
+    UserSettings, WindowInfo,
 };
+use crate::global_constants;
 use crate::ports::{GlobalKeyboardEvent, TrayEvent};
 use crate::presentation::app_theme;
 use crate::presentation::{CaptureView, CaptureViewMessage, OnboardingMessage, OnboardingView};
 use crate::presentation::{WindowPickerMessage, WindowPickerView};
+
+const CORRELATION_ID_STARTUP: &str = "startup";
+const CORRELATION_ID_ORCHESTRATOR_PREFIX: &str = "orchestrator-";
+
+mod capture;
+mod image_actions;
+mod interactive_ocr;
+mod onboarding;
+mod settings;
+mod ui;
+mod window_lifecycle;
+mod window_picker;
 
 pub enum AppWindow {
     Main,
@@ -25,6 +38,12 @@ pub enum AppWindow {
     Onboarding(OnboardingView),
     Hidden,
     WindowPicker(WindowPickerView),
+}
+
+#[derive(Debug, Clone)]
+pub enum SettingsEditState {
+    Closed,
+    Editing(UserSettings),
 }
 
 pub struct AppOrchestrator {
@@ -41,8 +60,9 @@ pub struct AppOrchestrator {
     status: String,
     settings: UserSettings,
     settings_window_id: Option<Id>,
-    temp_settings: Option<UserSettings>,
+    settings_edit_state: SettingsEditState,
     pending_draw_strokes: Option<Vec<crate::presentation::DrawStroke>>,
+    current_correlation_id: String,
 }
 
 #[derive(Clone)]
@@ -67,9 +87,17 @@ pub enum OrchestratorMessage {
     #[allow(dead_code)]
     CloseWindow(Id),
     WindowClosed(Id),
+    WindowFocused(Id),
     Keyboard(GlobalKeyboardEvent),
     OpenSettings,
     UpdateSearchUrl(String),
+    UpdateImageHostingProviderUrl(String),
+    UpdateImageHostingAuthMode(ImageHostingAuthMode),
+    UpdateImageHostingPublicKeyName(String),
+    UpdateImageHostingPublicKeyValue(String),
+    UpdateImageHostingExpirationSeconds(String),
+    UpdateImageHostingHttpMethod(ImageUploadHttpMethod),
+    UpdateImageHostingImageFieldName(String),
     UpdateHotkey(String),
     UpdateTheme(ThemeMode),
     UpdateSystemTrayMode(bool),
@@ -127,9 +155,31 @@ impl std::fmt::Debug for OrchestratorMessage {
             OrchestratorMessage::SpinnerTick => write!(f, "SpinnerTick"),
             OrchestratorMessage::CloseWindow(id) => write!(f, "CloseWindow({:?})", id),
             OrchestratorMessage::WindowClosed(id) => write!(f, "WindowClosed({:?})", id),
+            OrchestratorMessage::WindowFocused(id) => write!(f, "WindowFocused({:?})", id),
             OrchestratorMessage::Keyboard(event) => write!(f, "Keyboard({:?})", event),
             OrchestratorMessage::OpenSettings => write!(f, "OpenSettings"),
             OrchestratorMessage::UpdateSearchUrl(_) => write!(f, "UpdateSearchUrl"),
+            OrchestratorMessage::UpdateImageHostingProviderUrl(_) => {
+                write!(f, "UpdateImageHostingProviderUrl")
+            }
+            OrchestratorMessage::UpdateImageHostingAuthMode(_) => {
+                write!(f, "UpdateImageHostingAuthMode")
+            }
+            OrchestratorMessage::UpdateImageHostingPublicKeyName(_) => {
+                write!(f, "UpdateImageHostingPublicKeyName")
+            }
+            OrchestratorMessage::UpdateImageHostingPublicKeyValue(_) => {
+                write!(f, "UpdateImageHostingPublicKeyValue")
+            }
+            OrchestratorMessage::UpdateImageHostingExpirationSeconds(_) => {
+                write!(f, "UpdateImageHostingExpirationSeconds")
+            }
+            OrchestratorMessage::UpdateImageHostingHttpMethod(_) => {
+                write!(f, "UpdateImageHostingHttpMethod")
+            }
+            OrchestratorMessage::UpdateImageHostingImageFieldName(_) => {
+                write!(f, "UpdateImageHostingImageFieldName")
+            }
             OrchestratorMessage::UpdateHotkey(_) => write!(f, "UpdateHotkey"),
             OrchestratorMessage::UpdateTheme(_) => write!(f, "UpdateTheme"),
             OrchestratorMessage::UpdateSystemTrayMode(_) => write!(f, "UpdateSystemTrayMode"),
@@ -187,21 +237,142 @@ impl AppOrchestrator {
             onboarding_window_id: None,
             hidden_window_id: None,
             window_picker_window_id: None,
-            status: "Initializing OCR service...".to_string(),
+            status: global_constants::STATUS_INITIALIZING.to_string(),
             settings,
             settings_window_id: None,
-            temp_settings: None,
+            settings_edit_state: SettingsEditState::Closed,
             pending_draw_strokes: None,
+            current_correlation_id: CORRELATION_ID_STARTUP.to_string(),
         }
+    }
+
+    fn refresh_correlation_id(&mut self) {
+        let now = std::time::SystemTime::now();
+        let elapsed = now
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_micros();
+        self.current_correlation_id = format!("{}{}", CORRELATION_ID_ORCHESTRATOR_PREFIX, elapsed);
+    }
+
+    pub(super) fn current_correlation_id(&self) -> String {
+        self.current_correlation_id.clone()
+    }
+
+    pub(super) fn begin_settings_edit(&mut self) {
+        self.settings_edit_state = SettingsEditState::Editing(self.settings.clone());
+    }
+
+    pub(super) fn discard_settings_edit(&mut self) {
+        self.settings_edit_state = SettingsEditState::Closed;
+    }
+
+    pub(super) fn get_settings_for_rendering(&self) -> &UserSettings {
+        match &self.settings_edit_state {
+            SettingsEditState::Closed => &self.settings,
+            SettingsEditState::Editing(settings) => settings,
+        }
+    }
+
+    pub(super) fn update_settings_draft(
+        &mut self,
+        update_function: impl FnOnce(&mut UserSettings),
+    ) -> bool {
+        match &mut self.settings_edit_state {
+            SettingsEditState::Closed => false,
+            SettingsEditState::Editing(settings) => {
+                update_function(settings);
+                true
+            }
+        }
+    }
+
+    pub(super) fn take_settings_draft(&mut self) -> Option<UserSettings> {
+        match std::mem::replace(&mut self.settings_edit_state, SettingsEditState::Closed) {
+            SettingsEditState::Closed => None,
+            SettingsEditState::Editing(settings) => Some(settings),
+        }
+    }
+
+    pub(super) fn log_info_event(&self, event: &str, details: serde_json::Value) {
+        log::info!(
+            "{}",
+            serde_json::json!({
+                "event": event,
+                "correlation_id": self.current_correlation_id,
+                "details": details,
+            })
+        );
+    }
+
+    pub(super) fn log_error_event(&self, event: &str, details: serde_json::Value) {
+        log::error!(
+            "{}",
+            serde_json::json!({
+                "event": event,
+                "correlation_id": self.current_correlation_id,
+                "details": details,
+            })
+        );
+    }
+
+    pub(super) fn log_info_event_for_correlation(
+        correlation_id: String,
+        event: &str,
+        details: serde_json::Value,
+    ) {
+        log::info!(
+            "{}",
+            serde_json::json!({
+                "event": event,
+                "correlation_id": correlation_id,
+                "details": details,
+            })
+        );
+    }
+
+    pub(super) fn log_error_event_for_correlation(
+        correlation_id: String,
+        event: &str,
+        details: serde_json::Value,
+    ) {
+        log::error!(
+            "{}",
+            serde_json::json!({
+                "event": event,
+                "correlation_id": correlation_id,
+                "details": details,
+            })
+        );
+    }
+
+    pub(super) fn log_warn_event(&self, event: &str, details: serde_json::Value) {
+        log::warn!(
+            "{}",
+            serde_json::json!({
+                "event": event,
+                "correlation_id": self.current_correlation_id,
+                "details": details,
+            })
+        );
+    }
+
+    pub(super) fn log_debug_event(&self, event: &str, details: serde_json::Value) {
+        log::debug!(
+            "{}",
+            serde_json::json!({
+                "event": event,
+                "correlation_id": self.current_correlation_id,
+                "details": details,
+            })
+        );
     }
 
     #[allow(dead_code)]
     pub fn is_any_window_searching(&self) -> bool {
         for window in self.windows.values() {
-            if let AppWindow::InteractiveOcr(view) = window {
-                if view.is_searching() {
-                    return true;
-                }
+            if matches!(window, AppWindow::InteractiveOcr(view) if view.is_searching()) {
+                return true;
             }
         }
         false
@@ -231,11 +402,17 @@ impl AppOrchestrator {
 
     #[allow(dead_code)]
     pub fn get_window_title(&self, _window: Id) -> String {
-        "Circle to Search".to_string()
+        global_constants::APPLICATION_TITLE.to_string()
     }
 
     pub fn update(&mut self, message: OrchestratorMessage) -> Task<OrchestratorMessage> {
-        log::info!("[ORCHESTRATOR] Received message: {:?}", message);
+        self.refresh_correlation_id();
+        self.log_info_event(
+            "orchestrator_message_received",
+            serde_json::json!({
+                "message": format!("{:?}", message),
+            }),
+        );
 
         match message {
             OrchestratorMessage::OpenMainWindow => {
@@ -307,28 +484,72 @@ impl AppOrchestrator {
             OrchestratorMessage::WindowClosed(id) => {
                 return self.handle_window_closed(id);
             }
+            OrchestratorMessage::WindowFocused(id) => {
+                return self.handle_window_focused(id);
+            }
             OrchestratorMessage::OpenSettings => {
                 return self.handle_open_settings();
             }
             OrchestratorMessage::UpdateSearchUrl(url) => {
-                if let Some(ref mut temp) = self.temp_settings {
-                    temp.image_search_url_template = url;
+                let _ = self.update_settings_draft(|settings| {
+                    settings.image_search_url_template = url;
+                });
+            }
+            OrchestratorMessage::UpdateImageHostingProviderUrl(provider_url) => {
+                let _ = self.update_settings_draft(|settings| {
+                    settings.image_hosting_provider_url = provider_url;
+                });
+            }
+            OrchestratorMessage::UpdateImageHostingAuthMode(auth_mode) => {
+                let _ = self.update_settings_draft(|settings| {
+                    settings.image_hosting_auth_mode = auth_mode;
+                });
+            }
+            OrchestratorMessage::UpdateImageHostingPublicKeyName(public_key_name) => {
+                let _ = self.update_settings_draft(|settings| {
+                    settings.image_hosting_public_key_name = public_key_name;
+                });
+            }
+            OrchestratorMessage::UpdateImageHostingPublicKeyValue(public_key_value) => {
+                if public_key_value.trim().is_empty() {
+                    return Task::none();
                 }
+                let _ = self.update_settings_draft(|settings| {
+                    settings.image_hosting_public_key_value = public_key_value;
+                });
+            }
+            OrchestratorMessage::UpdateImageHostingExpirationSeconds(expiration_seconds) => {
+                let _ = self.update_settings_draft(|settings| {
+                    settings.image_hosting_expiration_seconds = expiration_seconds;
+                });
+            }
+            OrchestratorMessage::UpdateImageHostingHttpMethod(http_method) => {
+                let _ = self.update_settings_draft(|settings| {
+                    settings.image_hosting_http_method = http_method;
+                });
+            }
+            OrchestratorMessage::UpdateImageHostingImageFieldName(image_field_name) => {
+                let _ = self.update_settings_draft(|settings| {
+                    settings.image_hosting_image_field_name = image_field_name;
+                });
             }
             OrchestratorMessage::UpdateHotkey(hotkey) => {
-                if let Some(ref mut temp) = self.temp_settings {
-                    temp.capture_hotkey = hotkey;
-                }
+                let _ = self.update_settings_draft(|settings| {
+                    settings.capture_hotkey = hotkey;
+                });
             }
             OrchestratorMessage::UpdateTheme(theme) => {
-                if let Some(ref mut temp) = self.temp_settings {
-                    temp.theme_mode = theme;
-                }
+                let _ = self.update_settings_draft(|settings| {
+                    settings.theme_mode = theme;
+                });
             }
             OrchestratorMessage::UpdateSystemTrayMode(enabled) => {
                 self.settings.run_in_system_tray = enabled;
-                if let Err(e) = self.settings.save() {
-                    log::error!("[ORCHESTRATOR] Failed to save system tray setting: {}", e);
+                if let Err(save_error) = self.settings.save() {
+                    self.log_error_event(
+                        "system_tray_setting_save_failed",
+                        serde_json::json!({"error": save_error.to_string()}),
+                    );
                 }
                 if enabled {
                     return self.handle_hide_main_window();
@@ -382,11 +603,21 @@ impl AppOrchestrator {
                 return self.handle_window_capture_complete(capture_buffer);
             }
             OrchestratorMessage::WindowCaptureError(error_msg) => {
-                log::error!("[ORCHESTRATOR] Window capture failed: {}", error_msg);
+                self.log_error_event(
+                    "window_capture_failed",
+                    serde_json::json!({
+                        "error": error_msg,
+                    }),
+                );
             }
         }
 
-        log::debug!("[ORCHESTRATOR] No task to return, ending update");
+        self.log_info_event(
+            "orchestrator_message_completed",
+            serde_json::json!({
+                "result": "no_task",
+            }),
+        );
         Task::none()
     }
 
@@ -407,1836 +638,10 @@ impl AppOrchestrator {
             Some(AppWindow::WindowPicker(picker_view)) => picker_view
                 .render_ui()
                 .map(move |msg| OrchestratorMessage::WindowPickerMsg(window_id, msg)),
-            None => text("Loading...").into(),
+            None => text(global_constants::UI_GENERIC_LOADING).into(),
         }
     }
-
-    fn handle_open_main_window(&mut self) -> Task<OrchestratorMessage> {
-        log::debug!("[ORCHESTRATOR] Opening main window");
-
-        let ocr_window_ids: Vec<Id> = self
-            .windows
-            .iter()
-            .filter_map(|(id, window)| {
-                matches!(window, AppWindow::InteractiveOcr(_)).then_some(*id)
-            })
-            .collect();
-
-        let focus_ocr_windows: Vec<Task<OrchestratorMessage>> = ocr_window_ids
-            .iter()
-            .map(|id| {
-                log::info!(
-                    "[ORCHESTRATOR] Bringing capture result window {:?} to front",
-                    id
-                );
-                window::gain_focus(*id)
-            })
-            .collect();
-
-        if let Some(id) = self.main_window_id {
-            if self.windows.contains_key(&id) {
-                log::info!("[ORCHESTRATOR] Main window already exists, bringing to front");
-                return Task::batch(
-                    std::iter::once(window::gain_focus(id))
-                        .chain(focus_ocr_windows)
-                        .collect::<Vec<_>>(),
-                );
-            }
-        }
-
-        let (id, task) = window::open(window::Settings {
-            size: Size::new(700.0, 800.0),
-            position: window::Position::Centered,
-            resizable: false,
-            ..Default::default()
-        });
-
-        self.main_window_id = Some(id);
-        self.windows.insert(id, AppWindow::Main);
-        log::info!("[ORCHESTRATOR] Main window created with ID: {:?}", id);
-        Task::batch(
-            std::iter::once(task.discard().chain(window::gain_focus(id)))
-                .chain(focus_ocr_windows)
-                .collect::<Vec<_>>(),
-        )
-    }
-
-    fn handle_capture_screen(&mut self) -> Task<OrchestratorMessage> {
-        log::info!("[ORCHESTRATOR] Starting capture screen process");
-        self.status = "Preparing to capture...".to_string();
-
-        let main_window_id = self.main_window_id;
-
-        log::debug!("[ORCHESTRATOR] Minimizing main window and waiting 200ms before capture");
-        Task::batch(vec![
-            if let Some(id) = main_window_id {
-                window::minimize(id, true)
-            } else {
-                Task::none()
-            },
-            Task::future(async {
-                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                log::debug!("[ORCHESTRATOR] Delay complete, triggering PerformCapture");
-                OrchestratorMessage::PerformCapture
-            }),
-        ])
-    }
-
-    fn handle_perform_capture(&mut self) -> Task<OrchestratorMessage> {
-        log::info!("[ORCHESTRATOR] Performing screen capture");
-        self.status = "Capturing screen...".to_string();
-
-        let screen_capturer = Arc::clone(&self.screen_capturer);
-
-        Task::future(async move {
-            log::debug!("[ORCHESTRATOR] Getting mouse position");
-            let (mouse_x, mouse_y) = match Mouse::get_mouse_position() {
-                Mouse::Position { x, y } => {
-                    log::debug!("[ORCHESTRATOR] Mouse position: ({}, {})", x, y);
-                    (x, y)
-                }
-                Mouse::Error => {
-                    log::warn!("[ORCHESTRATOR] Failed to get mouse position, using (0,0)");
-                    (0, 0)
-                }
-            };
-
-            let region = ScreenRegion::at_coordinates(mouse_x, mouse_y);
-            log::debug!("[ORCHESTRATOR] Capturing screen at region");
-
-            match screen_capturer.capture_screen_at_region(&region) {
-                Ok(capture_buffer) => {
-                    log::info!(
-                        "[ORCHESTRATOR] Screen captured successfully, buffer size: {}x{}",
-                        capture_buffer.width,
-                        capture_buffer.height
-                    );
-                    OrchestratorMessage::OpenCaptureOverlay(mouse_x, mouse_y, capture_buffer)
-                }
-                Err(e) => {
-                    log::error!("[ORCHESTRATOR] Screen capture failed: {}. If multiple instances are running, this may be expected.", e);
-                    OrchestratorMessage::CaptureError(format!(
-                        "Capture failed: {}. Try closing other instances.",
-                        e
-                    ))
-                }
-            }
-        })
-    }
-
-    fn handle_open_capture_overlay(
-        &mut self,
-        mouse_x: i32,
-        mouse_y: i32,
-        capture_buffer: CaptureBuffer,
-    ) -> Task<OrchestratorMessage> {
-        log::info!(
-            "[ORCHESTRATOR] Opening capture overlay at ({}, {})",
-            mouse_x,
-            mouse_y
-        );
-        match xcap::Monitor::from_point(mouse_x, mouse_y) {
-            Ok(monitor) => {
-                log::debug!("[ORCHESTRATOR] Monitor found, creating overlay window");
-                let (id, task) = window::open(window::Settings {
-                    position: window::Position::Specific(Point::new(
-                        monitor.x().unwrap_or(0) as f32,
-                        monitor.y().unwrap_or(0) as f32,
-                    )),
-                    size: Size::new(
-                        monitor.width().unwrap_or(1920) as f32,
-                        monitor.height().unwrap_or(1080) as f32,
-                    ),
-                    transparent: true,
-                    decorations: false,
-                    ..Default::default()
-                });
-
-                let capture_view = CaptureView::build_with_capture_buffer(capture_buffer);
-                self.windows
-                    .insert(id, AppWindow::CaptureOverlay(capture_view));
-                self.status = "Overlay ready!".to_string();
-                log::info!("[ORCHESTRATOR] Overlay window created with ID: {:?}", id);
-
-                return task.discard().chain(window::gain_focus(id));
-            }
-            Err(e) => {
-                log::error!("[ORCHESTRATOR] Failed to get monitor: {}", e);
-                self.status = format!("Monitor error: {}", e);
-            }
-        }
-        Task::none()
-    }
-
-    fn handle_capture_error(&mut self, error_msg: String) -> Task<OrchestratorMessage> {
-        log::error!("[ORCHESTRATOR] Capture error: {}", error_msg);
-
-        let user_friendly_message = build_capture_error_message(&error_msg);
-        self.status = user_friendly_message;
-
-        Task::none()
-    }
-
-    fn handle_escape_pressed(&mut self) -> Task<OrchestratorMessage> {
-        log::info!("[ORCHESTRATOR] Escape key pressed");
-        if let Some((id, AppWindow::CaptureOverlay(_))) = self
-            .windows
-            .iter()
-            .find(|(_, w)| matches!(w, AppWindow::CaptureOverlay(_)))
-        {
-            log::debug!("[ORCHESTRATOR] Closing overlay window: {:?}", id);
-            return window::close(*id);
-        }
-        log::debug!("[ORCHESTRATOR] No overlay window found to close");
-        self.status = "Ready - Press Alt+Shift+S to capture".to_string();
-        Task::none()
-    }
-
-    fn handle_capture_overlay_message(
-        &mut self,
-        window_id: Id,
-        capture_msg: CaptureViewMessage,
-    ) -> Task<OrchestratorMessage> {
-        log::debug!(
-            "[ORCHESTRATOR] Received overlay message for window {:?}: {:?}",
-            window_id,
-            capture_msg
-        );
-        if let CaptureViewMessage::ConfirmSelection = capture_msg {
-            log::info!("[ORCHESTRATOR] Selection confirmed by overlay");
-            return self.update(OrchestratorMessage::ConfirmSelection(window_id));
-        }
-
-        if let CaptureViewMessage::SelectWindow = capture_msg {
-            log::info!("[ORCHESTRATOR] Window selection requested from capture overlay");
-            return Task::batch(vec![
-                window::close(window_id),
-                Task::done(OrchestratorMessage::OpenWindowPicker),
-            ]);
-        }
-
-        if let Some(AppWindow::CaptureOverlay(capture_view)) = self.windows.get_mut(&window_id) {
-            log::debug!("[ORCHESTRATOR] Updating overlay view state");
-            capture_view.update(capture_msg);
-        } else {
-            log::warn!("[ORCHESTRATOR] Overlay window {:?} not found", window_id);
-        }
-        Task::none()
-    }
-
-    fn handle_confirm_selection(&mut self, overlay_id: Id) -> Task<OrchestratorMessage> {
-        log::info!(
-            "[ORCHESTRATOR] Confirming selection from overlay {:?}",
-            overlay_id
-        );
-
-        if let Some(AppWindow::CaptureOverlay(capture_view)) = self.windows.get(&overlay_id) {
-            if let Some(selection_rect) = capture_view.get_selected_region() {
-                log::info!("[ORCHESTRATOR] Selection region: {:?}", selection_rect);
-                let capture_buffer = capture_view.get_capture_buffer().clone();
-
-                self.status = "Processing selection...".to_string();
-                return Task::batch(vec![
-                    window::close(overlay_id),
-                    Task::done(OrchestratorMessage::ShowCroppedImage(
-                        capture_buffer,
-                        selection_rect,
-                    )),
-                ]);
-            }
-            log::warn!("[ORCHESTRATOR] No selection region found");
-        } else {
-            log::warn!("[ORCHESTRATOR] Overlay window not found");
-        }
-
-        window::close(overlay_id)
-    }
-
-    fn handle_show_cropped_image(
-        &mut self,
-        capture_buffer: CaptureBuffer,
-        selection_rect: Rectangle,
-    ) -> Task<OrchestratorMessage> {
-        log::info!(
-            "[ORCHESTRATOR] Showing cropped image from selection: {:?}",
-            selection_rect
-        );
-
-        let cropped_buffer = capture_buffer.crop_region(
-            selection_rect.x as u32,
-            selection_rect.y as u32,
-            selection_rect.width as u32,
-            selection_rect.height as u32,
-        );
-
-        match cropped_buffer {
-            Ok(buffer) => {
-                log::info!(
-                    "[ORCHESTRATOR] Successfully cropped image: {}x{}",
-                    buffer.width,
-                    buffer.height
-                );
-
-                let (id, task) = window::open(window::Settings {
-                    size: Size::new(
-                        (buffer.width as f32).min(1200.0),
-                        (buffer.height as f32).min(800.0),
-                    ),
-                    position: window::Position::Centered,
-                    resizable: true,
-                    ..Default::default()
-                });
-
-                let mut view = crate::presentation::InteractiveOcrView::build(
-                    buffer.clone(),
-                    self.settings.theme_mode.clone(),
-                );
-
-                if let Some(strokes) = self.pending_draw_strokes.take() {
-                    view.set_draw_strokes(strokes);
-                }
-
-                self.windows.insert(id, AppWindow::InteractiveOcr(view));
-                self.status = "Ready".to_string();
-
-                return task.discard();
-            }
-            Err(e) => {
-                log::error!("[ORCHESTRATOR] Failed to crop image: {}", e);
-                self.status = format!("Error cropping image: {}", e);
-            }
-        }
-        Task::none()
-    }
-
-    fn handle_process_ocr(
-        &mut self,
-        window_id: Id,
-        buffer: CaptureBuffer,
-    ) -> Task<OrchestratorMessage> {
-        log::info!(
-            "[ORCHESTRATOR] Starting OCR processing for window {:?}",
-            window_id
-        );
-
-        let ocr_service = self.ocr_service.clone();
-        let width = buffer.width;
-        let height = buffer.height;
-
-        Task::future(async move {
-            log::debug!(
-                "[OCR] Converting capture buffer to dynamic image {}x{}",
-                width,
-                height
-            );
-
-            let dynamic_image = match image::DynamicImage::ImageRgba8(
-                image::RgbaImage::from_raw(width, height, buffer.raw_data.clone())
-                    .expect("Failed to create image from raw data"),
-            ) {
-                img => img,
-            };
-
-            log::debug!("[OCR] Running OCR on image");
-            match ocr_service.extract_text_from_image(&dynamic_image).await {
-                Ok(result) => {
-                    log::info!(
-                        "[OCR] OCR completed successfully. Found {} text blocks",
-                        result.text_blocks.len()
-                    );
-                    OrchestratorMessage::OcrComplete(window_id, Ok(result))
-                }
-                Err(e) => {
-                    log::error!("[OCR] OCR failed: {}", e);
-                    OrchestratorMessage::OcrComplete(window_id, Err(e.to_string()))
-                }
-            }
-        })
-    }
-
-    fn handle_ocr_complete(
-        &mut self,
-        window_id: Id,
-        result: Result<OcrResult, String>,
-    ) -> Task<OrchestratorMessage> {
-        match result {
-            Ok(ocr_result) => {
-                log::info!(
-                    "[ORCHESTRATOR] OCR complete for window {:?}: {} text blocks found",
-                    window_id,
-                    ocr_result.text_blocks.len()
-                );
-
-                if let Some(AppWindow::InteractiveOcr(view)) = self.windows.get_mut(&window_id) {
-                    view.set_ocr_result(ocr_result);
-                    self.status = "OCR complete".to_string();
-                }
-            }
-            Err(e) => {
-                log::error!(
-                    "[ORCHESTRATOR] OCR failed for window {:?}: {}",
-                    window_id,
-                    e
-                );
-                self.status = "Ready - Press Alt+Shift+S to capture".to_string();
-                if let Some(AppWindow::InteractiveOcr(view)) = self.windows.get_mut(&window_id) {
-                    view.set_ocr_failed(e);
-                }
-            }
-        }
-        Task::none()
-    }
-
-    fn handle_ocr_service_ready(
-        &mut self,
-        service: Arc<dyn OcrService>,
-    ) -> Task<OrchestratorMessage> {
-        log::info!("[ORCHESTRATOR] OCR service is ready");
-        self.ocr_service = service;
-        self.status = "Ready - Press Alt+Shift+S to capture".to_string();
-        Task::none()
-    }
-
-    fn handle_ocr_service_failed(&mut self, error: String) -> Task<OrchestratorMessage> {
-        log::error!(
-            "[ORCHESTRATOR] OCR service initialization failed: {}",
-            error
-        );
-        self.status = format!("OCR initialization failed: {}", error);
-        Task::none()
-    }
-
-    fn handle_interactive_ocr_message(
-        &mut self,
-        window_id: Id,
-        ocr_msg: crate::presentation::InteractiveOcrMessage,
-    ) -> Task<OrchestratorMessage> {
-        log::debug!(
-            "[ORCHESTRATOR] Received OCR message for window {:?}: {:?}",
-            window_id,
-            ocr_msg
-        );
-
-        if let Some(AppWindow::InteractiveOcr(view)) = self.windows.get_mut(&window_id) {
-            view.update(ocr_msg.clone());
-        }
-
-        match ocr_msg {
-            crate::presentation::InteractiveOcrMessage::Close => {
-                return window::close(window_id);
-            }
-            crate::presentation::InteractiveOcrMessage::SearchSelected => {
-                if let Some(AppWindow::InteractiveOcr(view)) = self.windows.get(&window_id) {
-                    let buffer = view.get_capture_buffer().clone();
-                    let query = view.get_search_query().to_string();
-                    let query_option = if query.is_empty() { None } else { Some(query) };
-                    return Task::done(OrchestratorMessage::PerformImageSearch(
-                        window_id,
-                        buffer,
-                        query_option,
-                    ));
-                }
-            }
-            crate::presentation::InteractiveOcrMessage::CopySelected => {
-                return Task::future(async move {
-                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                    OrchestratorMessage::InteractiveOcrMessage(
-                        window_id,
-                        crate::presentation::InteractiveOcrMessage::HideToast,
-                    )
-                });
-            }
-            crate::presentation::InteractiveOcrMessage::CopyImageToClipboard => {
-                if let Some(AppWindow::InteractiveOcr(view)) = self.windows.get(&window_id) {
-                    let buffer = view.get_capture_buffer().clone();
-                    let draw_strokes = view.get_draw_strokes();
-                    return self.update(OrchestratorMessage::CopyImageToClipboard(
-                        window_id,
-                        buffer,
-                        draw_strokes,
-                    ));
-                }
-            }
-            crate::presentation::InteractiveOcrMessage::SaveImageToFile => {
-                if let Some(AppWindow::InteractiveOcr(view)) = self.windows.get(&window_id) {
-                    let buffer = view.get_capture_buffer().clone();
-                    let draw_strokes = view.get_draw_strokes();
-                    return self.update(OrchestratorMessage::SaveImageToFile(
-                        window_id,
-                        buffer,
-                        draw_strokes,
-                    ));
-                }
-            }
-            crate::presentation::InteractiveOcrMessage::Recrop => {
-                if let Some(AppWindow::InteractiveOcr(view)) = self.windows.get(&window_id) {
-                    let draw_strokes = view.get_draw_strokes();
-                    self.pending_draw_strokes = Some(draw_strokes);
-                    return Task::batch(vec![
-                        window::close(window_id),
-                        self.update(OrchestratorMessage::CaptureScreen),
-                    ]);
-                }
-            }
-            crate::presentation::InteractiveOcrMessage::StartOcr => {
-                log::info!(
-                    "[ORCHESTRATOR] User triggered OCR for window {:?}",
-                    window_id
-                );
-                if let Some(AppWindow::InteractiveOcr(view)) = self.windows.get(&window_id) {
-                    let buffer = view.get_capture_buffer().clone();
-                    self.status = "Processing OCR...".to_string();
-                    return Task::done(OrchestratorMessage::ProcessOcr(window_id, buffer));
-                }
-            }
-            crate::presentation::InteractiveOcrMessage::CancelOcr => {
-                log::info!(
-                    "[ORCHESTRATOR] OCR cancelled by user for window {:?}",
-                    window_id
-                );
-                return window::close(window_id);
-            }
-            crate::presentation::InteractiveOcrMessage::RetryOcr => {
-                log::info!(
-                    "[ORCHESTRATOR] OCR retry requested for window {:?}",
-                    window_id
-                );
-                if let Some(AppWindow::InteractiveOcr(view)) = self.windows.get(&window_id) {
-                    let buffer = view.get_capture_buffer().clone();
-                    self.status = "Processing OCR...".to_string();
-                    return Task::done(OrchestratorMessage::ProcessOcr(window_id, buffer));
-                }
-            }
-            _ => {}
-        }
-        Task::none()
-    }
-
-    fn handle_perform_image_search(
-        &mut self,
-        window_id: Id,
-        buffer: CaptureBuffer,
-        query: Option<String>,
-    ) -> Task<OrchestratorMessage> {
-        log::info!(
-            "[ORCHESTRATOR] Starting image search for window {:?} with query: {:?}",
-            window_id,
-            query
-        );
-
-        let search_provider = Arc::clone(&self.reverse_image_search_provider);
-
-        Task::batch(vec![
-            Task::done(OrchestratorMessage::InteractiveOcrMessage(
-                window_id,
-                crate::presentation::InteractiveOcrMessage::SearchUploading,
-            )),
-            Task::future(async move {
-                let search_future = search_provider.perform_search(&buffer, query.as_deref());
-
-                let timeout_duration = std::time::Duration::from_secs(30);
-                match tokio::time::timeout(timeout_duration, search_future).await {
-                    Ok(Ok(_search_url)) => {
-                        log::info!("[ORCHESTRATOR] Image search completed successfully");
-                        OrchestratorMessage::InteractiveOcrMessage(
-                            window_id,
-                            crate::presentation::InteractiveOcrMessage::SearchCompleted,
-                        )
-                    }
-                    Ok(Err(e)) => {
-                        log::error!("[ORCHESTRATOR] Image search failed: {}", e);
-                        OrchestratorMessage::InteractiveOcrMessage(
-                            window_id,
-                            crate::presentation::InteractiveOcrMessage::SearchFailed(e.to_string()),
-                        )
-                    }
-                    Err(_) => {
-                        log::error!("[ORCHESTRATOR] Image search timed out after 30 seconds");
-                        OrchestratorMessage::InteractiveOcrMessage(
-                            window_id,
-                            crate::presentation::InteractiveOcrMessage::SearchFailed(
-                                "Search timed out after 30 seconds".to_string(),
-                            ),
-                        )
-                    }
-                }
-            }),
-        ])
-    }
-
-    fn handle_window_closed(&mut self, id: Id) -> Task<OrchestratorMessage> {
-        log::info!("[ORCHESTRATOR] Window closed: {:?}", id);
-
-        if Some(id) == self.hidden_window_id {
-            log::warn!("[ORCHESTRATOR] Hidden window closed unexpectedly, recreating");
-            self.hidden_window_id = None;
-            self.windows.remove(&id);
-            return self.create_hidden_window();
-        }
-
-        if Some(id) == self.main_window_id {
-            log::info!("[ORCHESTRATOR] Main window closed, app will continue in system tray");
-            self.windows.remove(&id);
-            self.main_window_id = None;
-            return Task::none();
-        }
-
-        if Some(id) == self.onboarding_window_id {
-            log::info!("[ORCHESTRATOR] Onboarding window closed");
-            self.windows.remove(&id);
-            self.onboarding_window_id = None;
-            return Task::none();
-        }
-
-        if Some(id) == self.window_picker_window_id {
-            log::info!("[ORCHESTRATOR] Window picker closed");
-            self.windows.remove(&id);
-            self.window_picker_window_id = None;
-            return Task::none();
-        }
-
-        let was_ocr_window = matches!(self.windows.get(&id), Some(AppWindow::InteractiveOcr(_)));
-        self.windows.remove(&id);
-        if Some(id) == self.settings_window_id {
-            self.settings_window_id = None;
-            self.temp_settings = None;
-        }
-        log::debug!(
-            "[ORCHESTRATOR] Removed window from tracking. Remaining: {}",
-            self.windows.len()
-        );
-        self.status = "Ready - Press Alt+Shift+S to capture".to_string();
-
-        if was_ocr_window {
-            if let Some(main_id) = self.main_window_id {
-                return window::minimize(main_id, false);
-            }
-        }
-        Task::none()
-    }
-
-    fn handle_open_settings(&mut self) -> Task<OrchestratorMessage> {
-        log::info!("[ORCHESTRATOR] Opening settings window");
-        if let Some(id) = self.settings_window_id {
-            log::debug!("[ORCHESTRATOR] Settings window already open, bringing to front");
-            return window::gain_focus(id);
-        }
-
-        let (id, task) = window::open(window::Settings {
-            size: Size::new(500.0, 800.0),
-            position: window::Position::Centered,
-            resizable: false,
-            ..Default::default()
-        });
-
-        self.settings_window_id = Some(id);
-        self.temp_settings = Some(self.settings.clone());
-        self.windows.insert(id, AppWindow::Settings);
-        log::info!("[ORCHESTRATOR] Settings window created with ID: {:?}", id);
-
-        task.discard()
-    }
-
-    fn handle_save_settings(&mut self) -> Task<OrchestratorMessage> {
-        if let Some(temp) = self.temp_settings.take() {
-            let hotkey_changed = temp.capture_hotkey != self.settings.capture_hotkey;
-
-            self.settings = temp.clone();
-            if let Err(e) = self.settings.save() {
-                log::error!("[ORCHESTRATOR] Failed to save settings: {}", e);
-                self.status = format!("Failed to save settings: {}", e);
-            } else {
-                log::info!("[ORCHESTRATOR] Settings saved successfully");
-                self.status = "Settings saved".to_string();
-
-                if hotkey_changed {
-                    log::info!("[ORCHESTRATOR] Hotkey changed, restarting app...");
-                    return Task::done(OrchestratorMessage::RestartApp);
-                }
-            }
-        }
-
-        if let Some(id) = self.settings_window_id {
-            return window::close(id);
-        }
-        Task::none()
-    }
-
-    fn handle_restart_app(&mut self) -> Task<OrchestratorMessage> {
-        log::info!("[ORCHESTRATOR] Restarting application...");
-        let exe_path = std::env::current_exe().expect("Failed to get executable path");
-        std::process::Command::new(exe_path)
-            .spawn()
-            .expect("Failed to restart app");
-        std::process::exit(0);
-    }
-
-    fn handle_tray_event(&mut self, event: TrayEvent) -> Task<OrchestratorMessage> {
-        log::info!("[ORCHESTRATOR] Handling tray event: {:?}", event);
-
-        match event {
-            TrayEvent::ShowWindow => self.handle_open_main_window(),
-            TrayEvent::SelectWindow => self.handle_open_window_picker(),
-            TrayEvent::OpenSettings => self.handle_open_settings(),
-            TrayEvent::Quit => {
-                log::info!("[ORCHESTRATOR] Quit requested from tray");
-                iced::exit()
-            }
-        }
-    }
-
-    fn handle_hide_main_window(&mut self) -> Task<OrchestratorMessage> {
-        log::info!("[ORCHESTRATOR] Hiding main window to system tray");
-        if let Some(id) = self.main_window_id {
-            window::close(id)
-        } else {
-            Task::none()
-        }
-    }
-
-    fn render_main_window(&self) -> Element<'_, OrchestratorMessage> {
-        let theme = app_theme::get_theme(&self.settings.theme_mode);
-
-        let logo_icon = text("🔍").size(64);
-
-        let title = text("Circle to Search").size(36);
-
-        let subtitle = text("Search anything on your screen instantly")
-            .size(16)
-            .style(|_theme: &iced::Theme| iced::widget::text::Style {
-                color: Some(Color::from_rgba(0.6, 0.6, 0.6, 1.0)),
-            });
-
-        let header_section = column![logo_icon, title, subtitle]
-            .spacing(8)
-            .align_x(Alignment::Center);
-
-        let capture_btn = button(
-            row![text("📸").size(24), text("Capture Screen").size(18)]
-                .spacing(12)
-                .align_y(Alignment::Center),
-        )
-        .padding([16, 48])
-        .style(|theme, status| app_theme::primary_button_style(theme, status))
-        .on_press(OrchestratorMessage::CaptureScreen);
-
-        let hotkey_text = container(
-            text(format!("Press {} anywhere", &self.settings.capture_hotkey))
-                .size(13)
-                .center()
-                .style(|_theme: &iced::Theme| iced::widget::text::Style {
-                    color: Some(Color::from_rgba(0.5, 0.5, 0.5, 1.0)),
-                }),
-        )
-        .width(Length::Fill)
-        .center_x(Length::Fill);
-
-        let or_text = container(text("OR").size(13).center().style(|_theme: &iced::Theme| {
-            iced::widget::text::Style {
-                color: Some(Color::from_rgba(0.5, 0.5, 0.5, 1.0)),
-            }
-        }))
-        .width(Length::Fill)
-        .center_x(Length::Fill);
-
-        let action_content = column![hotkey_text, or_text, capture_btn]
-            .spacing(12)
-            .align_x(Alignment::Center)
-            .width(Length::Fill);
-
-        let action_panel = container(action_content)
-            .padding([28, 32])
-            .width(Length::Fill)
-            .center_x(Length::Fill)
-            .center_y(Length::Shrink)
-            .style(|_theme| iced::widget::container::Style {
-                background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.3))),
-                border: iced::Border {
-                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
-                    width: 1.0,
-                    radius: 12.0.into(),
-                },
-                shadow: iced::Shadow {
-                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.2),
-                    offset: iced::Vector::new(0.0, 2.0),
-                    blur_radius: 8.0,
-                },
-                text_color: None,
-                snap: false,
-            });
-
-        let status_indicator = self.render_status_indicator();
-
-        let system_tray_row = row![
-            iced::widget::checkbox(self.settings.run_in_system_tray)
-                .on_toggle(OrchestratorMessage::UpdateSystemTrayMode),
-            text("Keep running in background").size(14),
-        ]
-        .spacing(10)
-        .align_y(Alignment::Center);
-
-        let settings_btn = button(
-            row![text("⚙").size(16), text("Settings").size(14)]
-                .spacing(8)
-                .align_y(Alignment::Center),
-        )
-        .padding([12, 24])
-        .style(|theme, status| app_theme::secondary_button_style(theme, status))
-        .on_press(OrchestratorMessage::OpenSettings);
-
-        let footer_content = column![system_tray_row, settings_btn]
-            .spacing(16)
-            .align_x(Alignment::Center);
-
-        let footer_panel = container(footer_content)
-            .padding([20, 24])
-            .width(Length::Fill)
-            .align_x(Alignment::Center)
-            .style(|_theme| iced::widget::container::Style {
-                background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.3))),
-                border: iced::Border {
-                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
-                    width: 1.0,
-                    radius: 12.0.into(),
-                },
-                shadow: iced::Shadow {
-                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.2),
-                    offset: iced::Vector::new(0.0, 2.0),
-                    blur_radius: 8.0,
-                },
-                text_color: None,
-                snap: false,
-            });
-
-        let content = column![
-            header_section,
-            Space::new().height(Length::Fixed(32.0)),
-            action_panel,
-            Space::new().height(Length::Fixed(16.0)),
-            status_indicator,
-            Space::new().height(Length::Fixed(24.0)),
-            footer_panel,
-        ]
-        .spacing(0)
-        .padding(32)
-        .align_x(Alignment::Center)
-        .max_width(500);
-
-        container(content)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .center_x(Length::Fill)
-            .center_y(Length::Fill)
-            .style(move |_theme| {
-                let palette = theme.palette();
-                iced::widget::container::Style {
-                    background: Some(Background::Color(palette.background)),
-                    text_color: Some(palette.text),
-                    ..Default::default()
-                }
-            })
-            .into()
-    }
-
-    fn render_status_indicator(&self) -> Element<'_, OrchestratorMessage> {
-        let (status_color, status_icon) = match self.status.as_str() {
-            s if s.contains("Ready") => (Color::from_rgb(0.2, 0.8, 0.4), "●"),
-            s if s.contains("Loading") || s.contains("Initializing") => {
-                (Color::from_rgb(1.0, 0.8, 0.2), "○")
-            }
-            s if s.contains("Error") || s.contains("Failed") => {
-                (Color::from_rgb(1.0, 0.3, 0.3), "●")
-            }
-            _ => (Color::from_rgba(0.5, 0.5, 0.5, 1.0), "●"),
-        };
-
-        let status_text = row![
-            text(status_icon)
-                .size(12)
-                .style(move |_theme: &iced::Theme| iced::widget::text::Style {
-                    color: Some(status_color),
-                }),
-            text(&self.status)
-                .size(13)
-                .style(|_theme: &iced::Theme| iced::widget::text::Style {
-                    color: Some(Color::from_rgba(0.6, 0.6, 0.6, 1.0)),
-                }),
-        ]
-        .spacing(8)
-        .align_y(Alignment::Center);
-
-        container(status_text).into()
-    }
-
-    fn render_settings_window(&self) -> Element<'_, OrchestratorMessage> {
-        use iced::widget::{pick_list, text_input};
-
-        let theme = app_theme::get_theme(&self.settings.theme_mode);
-        let temp = self.temp_settings.as_ref().unwrap_or(&self.settings);
-
-        let header_icon = text("⚙").size(48);
-        let title = text("Settings").size(28);
-        let header_section = column![header_icon, title]
-            .spacing(8)
-            .align_x(Alignment::Center);
-
-        let search_section = self.render_settings_section(
-            "Search",
-            "🔍",
-            column![self.render_setting_row(
-                "Image Search URL",
-                "Template URL for reverse image search",
-                text_input(
-                    "https://lens.google.com/uploadbyurl?url={}",
-                    &temp.image_search_url_template,
-                )
-                .on_input(OrchestratorMessage::UpdateSearchUrl)
-                .padding(12)
-                .into(),
-            ),]
-            .spacing(12),
-        );
-
-        let hotkey_warning =
-            text("Requires app restart to take effect")
-                .size(11)
-                .style(|_theme: &iced::Theme| iced::widget::text::Style {
-                    color: Some(Color::from_rgba(1.0, 0.7, 0.0, 0.8)),
-                });
-
-        let keyboard_section = self.render_settings_section(
-            "Keyboard",
-            "⌨",
-            column![self.render_setting_row(
-                "Capture Hotkey",
-                "Global shortcut to start capture",
-                column![
-                    text_input("Alt+Shift+S", &temp.capture_hotkey)
-                        .on_input(OrchestratorMessage::UpdateHotkey)
-                        .padding(12),
-                    hotkey_warning,
-                ]
-                .spacing(4)
-                .into(),
-            ),]
-            .spacing(12),
-        );
-
-        let appearance_section = self.render_settings_section(
-            "Appearance",
-            "🎨",
-            column![self.render_setting_row(
-                "Theme",
-                "Choose light or dark mode",
-                pick_list(
-                    vec![ThemeMode::Dark, ThemeMode::Light,],
-                    Some(temp.theme_mode.clone()),
-                    OrchestratorMessage::UpdateTheme,
-                )
-                .padding(12)
-                .into(),
-            ),]
-            .spacing(12),
-        );
-
-        let save_btn = button(
-            row![text("💾").size(16), text("Save Changes").size(15)]
-                .spacing(10)
-                .align_y(Alignment::Center),
-        )
-        .padding([14, 36])
-        .style(|theme, status| app_theme::primary_button_style(theme, status))
-        .on_press(OrchestratorMessage::SaveSettings);
-
-        let content = column![
-            header_section,
-            Space::new().height(Length::Fixed(24.0)),
-            search_section,
-            Space::new().height(Length::Fixed(16.0)),
-            keyboard_section,
-            Space::new().height(Length::Fixed(16.0)),
-            appearance_section,
-            Space::new().height(Length::Fixed(28.0)),
-            save_btn,
-        ]
-        .spacing(4)
-        .padding(32)
-        .width(Length::Fill)
-        .align_x(Alignment::Center);
-
-        container(content)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .style(move |_theme| {
-                let palette = theme.palette();
-                iced::widget::container::Style {
-                    background: Some(Background::Color(palette.background)),
-                    text_color: Some(palette.text),
-                    ..Default::default()
-                }
-            })
-            .into()
-    }
-
-    fn render_settings_section<'a>(
-        &self,
-        title: &'a str,
-        icon: &'a str,
-        content: iced::widget::Column<'a, OrchestratorMessage>,
-    ) -> Element<'a, OrchestratorMessage> {
-        let section_header = row![text(icon).size(18), text(title).size(16),]
-            .spacing(8)
-            .align_y(Alignment::Center);
-
-        let section_content = container(content)
-            .padding([12, 16])
-            .width(Length::Fill)
-            .style(|_theme| iced::widget::container::Style {
-                background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.3))),
-                border: iced::Border {
-                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
-                    width: 1.0,
-                    radius: 8.0.into(),
-                },
-                ..Default::default()
-            });
-
-        column![section_header, section_content]
-            .spacing(8)
-            .width(Length::Fill)
-            .into()
-    }
-
-    fn render_setting_row<'a>(
-        &self,
-        label: &'a str,
-        description: &'a str,
-        input: Element<'a, OrchestratorMessage>,
-    ) -> Element<'a, OrchestratorMessage> {
-        let label_col = column![
-            text(label).size(14),
-            text(description)
-                .size(11)
-                .style(|_theme: &iced::Theme| iced::widget::text::Style {
-                    color: Some(Color::from_rgba(0.6, 0.6, 0.6, 1.0)),
-                }),
-        ]
-        .spacing(2)
-        .width(Length::FillPortion(2));
-
-        let input_col = container(input).width(Length::FillPortion(3));
-
-        row![label_col, input_col]
-            .spacing(16)
-            .align_y(Alignment::Center)
-            .into()
-    }
-
-    fn handle_open_onboarding(&mut self) -> Task<OrchestratorMessage> {
-        log::info!("[ORCHESTRATOR] Opening onboarding window");
-
-        if self.onboarding_window_id.is_some()
-            && self
-                .windows
-                .contains_key(&self.onboarding_window_id.unwrap())
-        {
-            log::warn!("[ORCHESTRATOR] Onboarding window already exists and is open");
-            return Task::none();
-        }
-
-        let screen_recording_granted =
-            macos_permissions::macos::check_screen_recording_permission();
-        let input_monitoring_granted =
-            macos_permissions::macos::check_input_monitoring_permission();
-        let launch_at_login = auto_launch::is_launch_at_login_enabled();
-
-        let onboarding_view = OnboardingView::new(
-            screen_recording_granted,
-            input_monitoring_granted,
-            launch_at_login,
-        );
-
-        let (id, task) = window::open(window::Settings {
-            size: Size::new(600.0, 800.0),
-            position: window::Position::Centered,
-            resizable: false,
-            ..Default::default()
-        });
-
-        self.onboarding_window_id = Some(id);
-        self.windows
-            .insert(id, AppWindow::Onboarding(onboarding_view));
-        log::info!("[ORCHESTRATOR] Onboarding window created with ID: {:?}", id);
-        task.discard()
-    }
-
-    fn handle_onboarding_message(
-        &mut self,
-        window_id: Id,
-        message: OnboardingMessage,
-    ) -> Task<OrchestratorMessage> {
-        log::debug!("[ORCHESTRATOR] Handling onboarding message: {:?}", message);
-
-        match message {
-            OnboardingMessage::OpenScreenRecordingSettings => {
-                macos_permissions::macos::open_screen_recording_settings();
-                return Task::none();
-            }
-            OnboardingMessage::OpenInputMonitoringSettings => {
-                macos_permissions::macos::open_input_monitoring_settings();
-                return Task::none();
-            }
-            OnboardingMessage::RefreshPermissions => {
-                let screen_recording_granted =
-                    macos_permissions::macos::check_screen_recording_permission();
-                let input_monitoring_granted =
-                    macos_permissions::macos::check_input_monitoring_permission();
-
-                if let Some(AppWindow::Onboarding(view)) = self.windows.get_mut(&window_id) {
-                    view.update_permissions(screen_recording_granted, input_monitoring_granted);
-                }
-                return Task::none();
-            }
-            OnboardingMessage::FinishOnboarding => {
-                return self.handle_finish_onboarding(window_id);
-            }
-            _ => {}
-        }
-
-        if let Some(AppWindow::Onboarding(view)) = self.windows.get_mut(&window_id) {
-            view.handle_message(message);
-        }
-
-        Task::none()
-    }
-
-    fn handle_finish_onboarding(&mut self, window_id: Id) -> Task<OrchestratorMessage> {
-        log::info!("[ORCHESTRATOR] Finishing onboarding");
-
-        let launch_at_login =
-            if let Some(AppWindow::Onboarding(view)) = self.windows.get(&window_id) {
-                view.is_launch_at_login_enabled()
-            } else {
-                false
-            };
-
-        self.settings.onboarding_complete = true;
-        self.settings.launch_at_login = launch_at_login;
-
-        if let Err(error) = self.settings.save() {
-            log::error!("[ORCHESTRATOR] Failed to save settings: {}", error);
-        }
-
-        auto_launch::set_launch_at_login(launch_at_login);
-
-        self.windows.remove(&window_id);
-        self.onboarding_window_id = None;
-
-        let close_task = window::close(window_id);
-        let open_main_task = Task::done(OrchestratorMessage::OpenMainWindow);
-        let enable_keyboard_task = Task::done(OrchestratorMessage::EnableKeyboardListener);
-
-        Task::batch(vec![close_task, open_main_task, enable_keyboard_task])
-    }
-
-    fn handle_copy_image_to_clipboard(
-        &mut self,
-        window_id: Id,
-        buffer: CaptureBuffer,
-        draw_strokes: Vec<crate::presentation::DrawStroke>,
-    ) -> Task<OrchestratorMessage> {
-        log::info!(
-            "[ORCHESTRATOR] Copying image to clipboard with {} drawings",
-            draw_strokes.len()
-        );
-
-        Task::batch(vec![
-            Task::done(OrchestratorMessage::InteractiveOcrMessage(
-                window_id,
-                crate::presentation::InteractiveOcrMessage::CopyImagePreparing,
-            )),
-            Task::future(async move {
-                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-                OrchestratorMessage::InteractiveOcrMessage(
-                    window_id,
-                    crate::presentation::InteractiveOcrMessage::CopyImageCopying,
-                )
-            }),
-            Task::future(async move {
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-                let mut rgba_data = buffer.raw_data.clone();
-
-                if !draw_strokes.is_empty() {
-                    let converted_strokes: Vec<_> = draw_strokes
-                        .iter()
-                        .map(|stroke| {
-                            let points: Vec<(f32, f32)> =
-                                stroke.points.iter().map(|p| (p.x, p.y)).collect();
-                            let color = (
-                                stroke.color.r,
-                                stroke.color.g,
-                                stroke.color.b,
-                                stroke.color.a,
-                            );
-                            (points, color, stroke.width)
-                        })
-                        .collect();
-
-                    match crate::infrastructure::utils::composite_drawings_on_image(
-                        &rgba_data,
-                        buffer.width,
-                        buffer.height,
-                        &converted_strokes,
-                    ) {
-                        Ok(composited_data) => {
-                            rgba_data = composited_data;
-                            log::info!(
-                                "[ORCHESTRATOR] Successfully composited {} drawings onto image",
-                                draw_strokes.len()
-                            );
-                        }
-                        Err(e) => {
-                            log::warn!("[ORCHESTRATOR] Failed to composite drawings: {}, continuing with original image", e);
-                        }
-                    }
-                }
-
-                match crate::infrastructure::utils::copy_image_to_clipboard(
-                    &rgba_data,
-                    buffer.width,
-                    buffer.height,
-                ) {
-                    Ok(()) => {
-                        log::info!("[ORCHESTRATOR] Image copied to clipboard successfully");
-                        OrchestratorMessage::InteractiveOcrMessage(
-                            window_id,
-                            crate::presentation::InteractiveOcrMessage::CopyImageSuccess,
-                        )
-                    }
-                    Err(e) => {
-                        log::error!("[ORCHESTRATOR] Failed to copy image to clipboard: {}", e);
-                        OrchestratorMessage::InteractiveOcrMessage(
-                            window_id,
-                            crate::presentation::InteractiveOcrMessage::CopyImageFailed(
-                                e.to_string(),
-                            ),
-                        )
-                    }
-                }
-            }),
-            Task::future(async move {
-                tokio::time::sleep(tokio::time::Duration::from_millis(2600)).await;
-                OrchestratorMessage::InteractiveOcrMessage(
-                    window_id,
-                    crate::presentation::InteractiveOcrMessage::HideToast,
-                )
-            }),
-        ])
-    }
-
-    fn handle_save_image_to_file(
-        &mut self,
-        window_id: Id,
-        buffer: CaptureBuffer,
-        draw_strokes: Vec<crate::presentation::DrawStroke>,
-    ) -> Task<OrchestratorMessage> {
-        log::info!(
-            "[ORCHESTRATOR] Saving image to file with {} drawings",
-            draw_strokes.len()
-        );
-        let save_location = self.settings.screenshot_save_location.clone();
-
-        Task::batch(vec![
-            Task::done(OrchestratorMessage::InteractiveOcrMessage(
-                window_id,
-                crate::presentation::InteractiveOcrMessage::SaveImagePreparing,
-            )),
-            Task::future(async move {
-                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-                OrchestratorMessage::InteractiveOcrMessage(
-                    window_id,
-                    crate::presentation::InteractiveOcrMessage::SaveImageSaving,
-                )
-            }),
-            Task::future(async move {
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-                let mut rgba_data = buffer.raw_data.clone();
-
-                if !draw_strokes.is_empty() {
-                    let converted_strokes: Vec<_> = draw_strokes
-                        .iter()
-                        .map(|stroke| {
-                            let points: Vec<(f32, f32)> =
-                                stroke.points.iter().map(|p| (p.x, p.y)).collect();
-                            let color = (
-                                stroke.color.r,
-                                stroke.color.g,
-                                stroke.color.b,
-                                stroke.color.a,
-                            );
-                            (points, color, stroke.width)
-                        })
-                        .collect();
-
-                    match crate::infrastructure::utils::composite_drawings_on_image(
-                        &rgba_data,
-                        buffer.width,
-                        buffer.height,
-                        &converted_strokes,
-                    ) {
-                        Ok(composited_data) => {
-                            rgba_data = composited_data;
-                            log::info!(
-                                "[ORCHESTRATOR] Successfully composited {} drawings onto image",
-                                draw_strokes.len()
-                            );
-                        }
-                        Err(e) => {
-                            log::warn!("[ORCHESTRATOR] Failed to composite drawings: {}, continuing with original image", e);
-                        }
-                    }
-                }
-
-                match crate::infrastructure::utils::save_image_to_file(
-                    &rgba_data,
-                    buffer.width,
-                    buffer.height,
-                    &save_location,
-                ) {
-                    Ok(path) => {
-                        log::info!("[ORCHESTRATOR] Image saved successfully to: {}", path);
-                        OrchestratorMessage::InteractiveOcrMessage(
-                            window_id,
-                            crate::presentation::InteractiveOcrMessage::SaveSuccess(path),
-                        )
-                    }
-                    Err(e) => {
-                        log::error!("[ORCHESTRATOR] Failed to save image: {}", e);
-                        OrchestratorMessage::InteractiveOcrMessage(
-                            window_id,
-                            crate::presentation::InteractiveOcrMessage::SaveFailed(e.to_string()),
-                        )
-                    }
-                }
-            }),
-            Task::future(async move {
-                tokio::time::sleep(tokio::time::Duration::from_millis(2600)).await;
-                OrchestratorMessage::InteractiveOcrMessage(
-                    window_id,
-                    crate::presentation::InteractiveOcrMessage::HideToast,
-                )
-            }),
-        ])
-    }
-
-    fn handle_open_window_picker(&mut self) -> Task<OrchestratorMessage> {
-        log::info!("[ORCHESTRATOR] Opening window picker");
-
-        if let Some(id) = self.window_picker_window_id {
-            log::debug!("[ORCHESTRATOR] Window picker already open, bringing to front");
-            return window::gain_focus(id);
-        }
-
-        let mut picker_view = WindowPickerView::build(vec![]);
-        picker_view.set_loading(true);
-
-        let (id, open_task) = window::open(window::Settings {
-            size: Size::new(500.0, 600.0),
-            position: window::Position::Centered,
-            visible: true,
-            resizable: true,
-            decorations: true,
-            ..Default::default()
-        });
-
-        self.window_picker_window_id = Some(id);
-        self.windows
-            .insert(id, AppWindow::WindowPicker(picker_view));
-
-        let screen_capturer = Arc::clone(&self.screen_capturer);
-
-        Task::batch(vec![
-            open_task.discard(),
-            Task::future(async move {
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                match screen_capturer.list_capturable_windows() {
-                    Ok(windows) => {
-                        log::info!("[ORCHESTRATOR] Found {} capturable windows", windows.len());
-                        OrchestratorMessage::WindowsListLoaded(id, windows)
-                    }
-                    Err(e) => {
-                        log::error!("[ORCHESTRATOR] Failed to list windows: {}", e);
-                        OrchestratorMessage::WindowsListLoaded(id, vec![])
-                    }
-                }
-            }),
-        ])
-    }
-
-    fn handle_window_picker_message(
-        &mut self,
-        window_id: Id,
-        msg: WindowPickerMessage,
-    ) -> Task<OrchestratorMessage> {
-        log::debug!("[ORCHESTRATOR] Handling window picker message: {:?}", msg);
-
-        match msg {
-            WindowPickerMessage::WindowSelected(selected_id) => {
-                if let Some(AppWindow::WindowPicker(view)) = self.windows.get_mut(&window_id) {
-                    view.update(WindowPickerMessage::WindowSelected(selected_id));
-                }
-            }
-            WindowPickerMessage::ConfirmSelection => {
-                let selected_app_name =
-                    if let Some(AppWindow::WindowPicker(view)) = self.windows.get(&window_id) {
-                        view.get_selected_window_info().map(|w| w.app_name.clone())
-                    } else {
-                        None
-                    };
-
-                if let Some(app_name) = selected_app_name {
-                    self.window_picker_window_id = None;
-                    return Task::batch(vec![
-                        window::close(window_id),
-                        Task::done(OrchestratorMessage::FocusWindowAndCapture(app_name)),
-                    ]);
-                }
-            }
-            WindowPickerMessage::Cancel => {
-                log::info!("[ORCHESTRATOR] Window picker cancelled");
-                self.window_picker_window_id = None;
-                return window::close(window_id);
-            }
-            WindowPickerMessage::RefreshWindows => {
-                if let Some(AppWindow::WindowPicker(view)) = self.windows.get_mut(&window_id) {
-                    view.set_loading(true);
-                }
-
-                let screen_capturer = Arc::clone(&self.screen_capturer);
-                return Task::future(async move {
-                    match screen_capturer.list_capturable_windows() {
-                        Ok(windows) => {
-                            log::info!(
-                                "[ORCHESTRATOR] Refreshed window list: {} windows",
-                                windows.len()
-                            );
-                            OrchestratorMessage::WindowsListLoaded(window_id, windows)
-                        }
-                        Err(e) => {
-                            log::error!("[ORCHESTRATOR] Failed to refresh windows: {}", e);
-                            OrchestratorMessage::WindowsListLoaded(window_id, vec![])
-                        }
-                    }
-                });
-            }
-            WindowPickerMessage::CaptureFullScreen => {
-                log::info!("[ORCHESTRATOR] Full screen capture selected from picker");
-                return Task::batch(vec![
-                    window::close(window_id),
-                    Task::done(OrchestratorMessage::CaptureScreen),
-                ]);
-            }
-            WindowPickerMessage::SpinnerTick => {}
-            WindowPickerMessage::FilterChanged(query) => {
-                if let Some(AppWindow::WindowPicker(view)) = self.windows.get_mut(&window_id) {
-                    view.update(WindowPickerMessage::FilterChanged(query));
-                }
-            }
-        }
-
-        Task::none()
-    }
-
-    fn handle_windows_list_loaded(
-        &mut self,
-        window_id: Id,
-        windows: Vec<WindowInfo>,
-    ) -> Task<OrchestratorMessage> {
-        log::debug!(
-            "[ORCHESTRATOR] Windows list loaded: {} windows",
-            windows.len()
-        );
-
-        if let Some(AppWindow::WindowPicker(view)) = self.windows.get_mut(&window_id) {
-            view.set_windows(windows);
-        }
-
-        Task::none()
-    }
-
-    fn handle_focus_window_and_capture(&mut self, app_name: String) -> Task<OrchestratorMessage> {
-        log::info!(
-            "[ORCHESTRATOR] Focusing window for app '{}' and preparing capture",
-            app_name
-        );
-
-        Task::future(async move {
-            let _ = crate::infrastructure::utils::focus_external_window_by_app_name(&app_name);
-
-            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-
-            log::debug!("[ORCHESTRATOR] Window focus delay complete, triggering screen capture");
-            OrchestratorMessage::CaptureScreen
-        })
-    }
-
-    fn handle_capture_selected_window(&mut self, window_id: u32) -> Task<OrchestratorMessage> {
-        log::info!("[ORCHESTRATOR] Capturing selected window: {}", window_id);
-        self.window_picker_window_id = None;
-
-        let screen_capturer = Arc::clone(&self.screen_capturer);
-
-        Task::future(async move {
-            match screen_capturer.capture_window_by_id(window_id) {
-                Ok(capture_buffer) => {
-                    log::info!(
-                        "[ORCHESTRATOR] Window captured successfully: {}x{}",
-                        capture_buffer.width,
-                        capture_buffer.height
-                    );
-                    OrchestratorMessage::WindowCaptureComplete(capture_buffer)
-                }
-                Err(e) => {
-                    log::error!("[ORCHESTRATOR] Window capture failed: {}", e);
-                    OrchestratorMessage::WindowCaptureError(e.to_string())
-                }
-            }
-        })
-    }
-
-    fn handle_window_capture_complete(
-        &mut self,
-        capture_buffer: CaptureBuffer,
-    ) -> Task<OrchestratorMessage> {
-        log::info!(
-            "[ORCHESTRATOR] Processing window capture: {}x{}",
-            capture_buffer.width,
-            capture_buffer.height
-        );
-
-        let selection_rect = Rectangle {
-            x: 0.0,
-            y: 0.0,
-            width: capture_buffer.width as f32,
-            height: capture_buffer.height as f32,
-        };
-
-        self.update(OrchestratorMessage::ShowCroppedImage(
-            capture_buffer,
-            selection_rect,
-        ))
-    }
-}
-
-fn build_capture_error_message(error_msg: &str) -> String {
-    #[cfg(target_os = "linux")]
-    let platform = "linux";
-    #[cfg(target_os = "macos")]
-    let platform = "macos";
-    #[cfg(target_os = "windows")]
-    let platform = "windows";
-    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-    let platform = "unknown";
-
-    build_capture_error_message_for_platform(error_msg, platform)
-}
-
-fn build_capture_error_message_for_platform(error_msg: &str, platform: &str) -> String {
-    let error_lower = error_msg.to_lowercase();
-
-    match platform {
-        "linux" => {
-            let is_permission_error = error_lower.contains("permission")
-                || error_lower.contains("access")
-                || error_lower.contains("denied")
-                || error_lower.contains("pipewire")
-                || error_lower.contains("portal");
-
-            if is_permission_error {
-                return format!(
-                    "Screen capture failed: {}\n\n\
-                    On Linux (Wayland), screen capture requires:\n\
-                    • PipeWire and xdg-desktop-portal installed\n\
-                    • A portal dialog will appear - click 'Share' to allow\n\n\
-                    Try: sudo apt install pipewire xdg-desktop-portal",
-                    error_msg
-                );
-            }
-        }
-        "macos" => {
-            let is_permission_error = error_lower.contains("permission")
-                || error_lower.contains("access")
-                || error_lower.contains("denied");
-
-            if is_permission_error {
-                return format!(
-                    "Screen capture failed: {}\n\n\
-                    Please grant Screen Recording permission:\n\
-                    System Settings → Privacy & Security → Screen Recording",
-                    error_msg
-                );
-            }
-        }
-        _ => {}
-    }
-
-    format!(
-        "Capture failed: {}. Try closing other instances.",
-        error_msg
-    )
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::core::models::OcrResult;
-
-    struct MockScreenCapturer;
-    impl ScreenCapturer for MockScreenCapturer {
-        fn capture_screen_at_region(
-            &self,
-            _region: &ScreenRegion,
-        ) -> anyhow::Result<CaptureBuffer> {
-            let raw_data = vec![255u8; 100 * 100 * 4];
-            Ok(CaptureBuffer::build_from_raw_data(1.0, 100, 100, raw_data))
-        }
-
-        fn list_capturable_windows(&self) -> anyhow::Result<Vec<WindowInfo>> {
-            Ok(vec![])
-        }
-
-        fn capture_window_by_id(&self, _window_id: u32) -> anyhow::Result<CaptureBuffer> {
-            let raw_data = vec![255u8; 100 * 100 * 4];
-            Ok(CaptureBuffer::build_from_raw_data(1.0, 100, 100, raw_data))
-        }
-    }
-
-    struct MockMouseProvider;
-    impl MousePositionProvider for MockMouseProvider {
-        fn get_current_mouse_position(&self) -> Result<ScreenRegion, String> {
-            Ok(ScreenRegion::at_coordinates(0, 0))
-        }
-    }
-
-    struct MockOcrService;
-    #[async_trait::async_trait]
-    impl OcrService for MockOcrService {
-        async fn extract_text_from_image(
-            &self,
-            _image: &image::DynamicImage,
-        ) -> anyhow::Result<OcrResult> {
-            Ok(OcrResult {
-                text_blocks: vec![],
-                full_text: "test".to_string(),
-            })
-        }
-    }
-
-    struct MockSearchProvider;
-    #[async_trait::async_trait]
-    impl ReverseImageSearchProvider for MockSearchProvider {
-        async fn perform_search(
-            &self,
-            _buffer: &CaptureBuffer,
-            _query: Option<&str>,
-        ) -> anyhow::Result<String> {
-            Ok("https://test.com/search".to_string())
-        }
-    }
-
-    fn create_test_orchestrator() -> AppOrchestrator {
-        AppOrchestrator::build(
-            Arc::new(MockScreenCapturer),
-            Arc::new(MockMouseProvider),
-            Arc::new(MockOcrService),
-            Arc::new(MockSearchProvider),
-            UserSettings::default(),
-        )
-    }
-
-    #[test]
-    fn test_build_creates_orchestrator_with_correct_initial_state() {
-        let orchestrator = create_test_orchestrator();
-
-        assert_eq!(orchestrator.windows.len(), 0);
-        assert!(orchestrator.main_window_id.is_none());
-        assert!(orchestrator.settings_window_id.is_none());
-        assert!(orchestrator.temp_settings.is_none());
-        assert!(!orchestrator.status.is_empty());
-    }
-
-    #[test]
-    fn test_handle_capture_error_updates_status() {
-        let mut orchestrator = create_test_orchestrator();
-        let error_message = "Test error".to_string();
-
-        let _ = orchestrator.handle_capture_error(error_message.clone());
-
-        assert!(orchestrator.status.contains("Test error"));
-        assert!(orchestrator.status.contains("Capture failed"));
-    }
-
-    #[test]
-    fn test_build_capture_error_message_linux_permission_error() {
-        let error = "Access denied to screen capture";
-        let result = build_capture_error_message_for_platform(error, "linux");
-
-        assert!(result.contains("Screen capture failed"));
-        assert!(result.contains("PipeWire"));
-        assert!(result.contains("xdg-desktop-portal"));
-        assert!(result.contains("sudo apt install"));
-    }
-
-    #[test]
-    fn test_build_capture_error_message_linux_pipewire_error() {
-        let error = "PipeWire connection failed";
-        let result = build_capture_error_message_for_platform(error, "linux");
-
-        assert!(result.contains("Screen capture failed"));
-        assert!(result.contains("PipeWire"));
-    }
-
-    #[test]
-    fn test_build_capture_error_message_linux_portal_error() {
-        let error = "Portal request denied";
-        let result = build_capture_error_message_for_platform(error, "linux");
-
-        assert!(result.contains("Screen capture failed"));
-        assert!(result.contains("xdg-desktop-portal"));
-    }
-
-    #[test]
-    fn test_build_capture_error_message_linux_generic_error() {
-        let error = "Unknown capture error";
-        let result = build_capture_error_message_for_platform(error, "linux");
-
-        assert!(result.contains("Capture failed"));
-        assert!(result.contains("Try closing other instances"));
-        assert!(!result.contains("PipeWire"));
-    }
-
-    #[test]
-    fn test_build_capture_error_message_macos_permission_error() {
-        let error = "Permission denied for screen recording";
-        let result = build_capture_error_message_for_platform(error, "macos");
-
-        assert!(result.contains("Screen capture failed"));
-        assert!(result.contains("Screen Recording permission"));
-        assert!(result.contains("System Settings"));
-    }
-
-    #[test]
-    fn test_build_capture_error_message_macos_access_error() {
-        let error = "Access to screen not granted";
-        let result = build_capture_error_message_for_platform(error, "macos");
-
-        assert!(result.contains("Screen capture failed"));
-        assert!(result.contains("Privacy & Security"));
-    }
-
-    #[test]
-    fn test_build_capture_error_message_macos_generic_error() {
-        let error = "Monitor not found";
-        let result = build_capture_error_message_for_platform(error, "macos");
-
-        assert!(result.contains("Capture failed"));
-        assert!(result.contains("Try closing other instances"));
-        assert!(!result.contains("System Settings"));
-    }
-
-    #[test]
-    fn test_build_capture_error_message_windows_always_generic() {
-        let error = "Permission denied";
-        let result = build_capture_error_message_for_platform(error, "windows");
-
-        assert!(result.contains("Capture failed"));
-        assert!(result.contains("Try closing other instances"));
-        assert!(!result.contains("PipeWire"));
-        assert!(!result.contains("System Settings"));
-    }
-
-    #[test]
-    fn test_build_capture_error_message_unknown_platform() {
-        let error = "Some error";
-        let result = build_capture_error_message_for_platform(error, "freebsd");
-
-        assert!(result.contains("Capture failed"));
-        assert!(result.contains("Try closing other instances"));
-    }
-
-    #[test]
-    fn test_handle_ocr_service_ready_updates_service() {
-        let mut orchestrator = create_test_orchestrator();
-        let new_service = Arc::new(MockOcrService) as Arc<dyn OcrService>;
-
-        let _ = orchestrator.handle_ocr_service_ready(new_service);
-
-        assert!(orchestrator.status.contains("Ready"));
-    }
-
-    #[test]
-    fn test_handle_ocr_service_failed_updates_status() {
-        let mut orchestrator = create_test_orchestrator();
-        let error = "OCR initialization failed".to_string();
-
-        let _ = orchestrator.handle_ocr_service_failed(error.clone());
-
-        assert!(orchestrator.status.contains("OCR initialization failed"));
-    }
-
-    #[test]
-    fn test_update_settings_modifies_temp_settings() {
-        let mut orchestrator = create_test_orchestrator();
-        orchestrator.temp_settings = Some(UserSettings::default());
-
-        let new_url = "https://new.search.com?q={}".to_string();
-        let _ = orchestrator.update(OrchestratorMessage::UpdateSearchUrl(new_url.clone()));
-
-        assert_eq!(
-            orchestrator
-                .temp_settings
-                .unwrap()
-                .image_search_url_template,
-            new_url
-        );
-    }
-
-    #[test]
-    fn test_update_hotkey_modifies_temp_settings() {
-        let mut orchestrator = create_test_orchestrator();
-        orchestrator.temp_settings = Some(UserSettings::default());
-
-        let new_hotkey = "Ctrl+Shift+C".to_string();
-        let _ = orchestrator.update(OrchestratorMessage::UpdateHotkey(new_hotkey.clone()));
-
-        assert_eq!(
-            orchestrator.temp_settings.unwrap().capture_hotkey,
-            new_hotkey
-        );
-    }
-
-    #[test]
-    fn test_update_theme_modifies_temp_settings() {
-        let mut orchestrator = create_test_orchestrator();
-        orchestrator.temp_settings = Some(UserSettings::default());
-
-        let _ = orchestrator.update(OrchestratorMessage::UpdateTheme(ThemeMode::Light));
-
-        assert!(matches!(
-            orchestrator.temp_settings.unwrap().theme_mode,
-            ThemeMode::Light
-        ));
-    }
-
-    #[test]
-    fn test_get_window_title_returns_correct_title() {
-        let orchestrator = create_test_orchestrator();
-        let id = Id::unique();
-
-        let title = orchestrator.get_window_title(id);
-
-        assert_eq!(title, "Circle to Search");
-    }
-}
+mod tests;

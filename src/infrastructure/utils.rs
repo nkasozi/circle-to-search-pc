@@ -3,33 +3,52 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 
+const APP_LOCK_FILENAME: &str = "circle-to-search-pc.lock";
+const CLIPBOARD_TEMP_IMAGE_FILENAME: &str = "circle_to_search_clipboard.png";
+const CLIPBOARD_TEMP_PATH_INVALID: &str = "Invalid temp path";
+const SCREENSHOT_FILENAME_PREFIX: &str = "screenshot_";
+const SCREENSHOT_FILENAME_SUFFIX: &str = ".png";
+#[cfg(not(target_os = "macos"))]
+const WINDOW_FOCUS_NOT_SUPPORTED: &str = "Window focus not supported on this platform";
+
 pub fn get_default_lock_file_path() -> PathBuf {
-    std::env::temp_dir().join("circle-to-search-pc.lock")
+    std::env::temp_dir().join(APP_LOCK_FILENAME)
 }
 
 pub fn ensure_single_instance_using_lock_file(lock_file_path: &Path) -> bool {
     if lock_file_path.exists() {
-        if let Ok(pid_string) = fs::read_to_string(&lock_file_path) {
-            if let Ok(pid) = pid_string.trim().parse::<u32>() {
-                log::info!("[INSTANCE] Found existing instance with PID: {}", pid);
-
-                let mut system = System::new();
-                system.refresh_processes_specifics(
-                    ProcessesToUpdate::All,
-                    true,
-                    ProcessRefreshKind::nothing(),
-                );
-
-                if let Some(process) = system.process(Pid::from_u32(pid)) {
-                    log::warn!("[INSTANCE] Killing existing instance (PID: {})", pid);
-                    process.kill();
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                } else {
-                    log::info!("[INSTANCE] Previous instance (PID: {}) is not running, cleaning up stale lock file", pid);
-                }
-
-                let _ = fs::remove_file(&lock_file_path);
+        let pid_string = match fs::read_to_string(lock_file_path) {
+            Ok(pid_string) => pid_string,
+            Err(error) => {
+                log::warn!("[INSTANCE] Failed reading lock file: {}", error);
+                String::new()
             }
+        };
+
+        if let Ok(pid) = pid_string.trim().parse::<u32>() {
+            log::info!("[INSTANCE] Found existing instance with PID: {}", pid);
+
+            let mut system = System::new();
+            system.refresh_processes_specifics(
+                ProcessesToUpdate::All,
+                true,
+                ProcessRefreshKind::nothing(),
+            );
+
+            if let Some(process) = system.process(Pid::from_u32(pid)) {
+                log::warn!("[INSTANCE] Killing existing instance (PID: {})", pid);
+                process.kill();
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            } else {
+                log::info!(
+                    "[INSTANCE] Previous instance (PID: {}) is not running, cleaning up stale lock file",
+                    pid
+                );
+            }
+        }
+
+        if let Err(error) = fs::remove_file(lock_file_path) {
+            log::debug!("[INSTANCE] Lock file cleanup skipped: {}", error);
         }
     }
 
@@ -184,11 +203,11 @@ pub fn copy_image_to_clipboard(rgba_data: &[u8], width: u32, height: u32) -> Res
 
         let png_data = convert_rgba_to_png(rgba_data, width, height)?;
 
-        let temp_path = std::env::temp_dir().join("circle_to_search_clipboard.png");
+        let temp_path = std::env::temp_dir().join(CLIPBOARD_TEMP_IMAGE_FILENAME);
         std::fs::write(&temp_path, &png_data)
             .map_err(|e| format!("Failed to write temp file: {}", e))?;
 
-        let temp_path_str = temp_path.to_str().ok_or("Invalid temp path")?;
+        let temp_path_str = temp_path.to_str().ok_or(CLIPBOARD_TEMP_PATH_INVALID)?;
 
         let script = format!(
             "set the clipboard to (read (POSIX file \"{}\") as «class PNGf»)",
@@ -267,9 +286,16 @@ pub fn save_image_to_file(
 
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .map_err(|error| {
+            let error_message = format!("Failed to calculate timestamp: {}", error);
+            log::error!("[FILE_SAVE] {}", error_message);
+            error_message
+        })?
         .as_secs();
-    let filename = format!("screenshot_{}.png", timestamp);
+    let filename = format!(
+        "{}{}{}",
+        SCREENSHOT_FILENAME_PREFIX, timestamp, SCREENSHOT_FILENAME_SUFFIX
+    );
     let save_path = PathBuf::from(save_location).join(&filename);
 
     if let Some(parent) = save_path.parent() {
@@ -295,7 +321,7 @@ pub fn save_image_to_file(
 
 fn convert_rgba_to_png(rgba_data: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
     let img = image::RgbaImage::from_raw(width, height, rgba_data.to_vec()).ok_or_else(|| {
-        let error_message = "Failed to create image from raw data".to_string();
+        let error_message = crate::global_constants::OCR_RAW_IMAGE_CREATION_FAILED.to_string();
         log::error!("[IMAGE_CONVERT] {}", error_message);
         error_message
     })?;
@@ -324,7 +350,7 @@ pub fn composite_drawings_on_image(
     use image::{Rgba, RgbaImage};
 
     let mut img = RgbaImage::from_raw(width, height, rgba_data.to_vec())
-        .ok_or_else(|| "Failed to create image from raw data".to_string())?;
+        .ok_or_else(|| crate::global_constants::OCR_RAW_IMAGE_CREATION_FAILED.to_string())?;
 
     for (points, (r, g, b, a), stroke_width) in draw_strokes {
         if points.len() < 2 {
@@ -440,6 +466,6 @@ pub fn focus_external_window_by_app_name(app_name: &str) -> Result<(), String> {
     #[cfg(not(target_os = "macos"))]
     {
         log::warn!("[WINDOW_FOCUS] Window focus not implemented for this platform");
-        Err("Window focus not supported on this platform".to_string())
+        Err(WINDOW_FOCUS_NOT_SUPPORTED.to_string())
     }
 }

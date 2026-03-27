@@ -7,9 +7,31 @@ pub mod macos {
     use core_foundation::boolean::CFBoolean;
     use core_foundation::dictionary::CFDictionary;
     use core_foundation::string::CFString;
+    use std::ffi::CString;
     use std::process::Command;
 
     const LOG_TAG_PERMISSIONS: &str = "[PERMISSIONS]";
+    const SCREEN_RECORDING_PERMISSION: &str = "Screen Recording";
+    const ACCESSIBILITY_PERMISSION: &str = "Accessibility";
+    const INPUT_MONITORING_PERMISSION: &str = "Input Monitoring";
+    const CORE_GRAPHICS_FRAMEWORK_PATH: &str =
+        "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics";
+    const IOKIT_FRAMEWORK_PATH: &str = "/System/Library/Frameworks/IOKit.framework/IOKit";
+    const APPLICATION_SERVICES_FRAMEWORK_PATH: &str =
+        "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices";
+    const CG_PREFLIGHT_ACCESS_SYMBOL: &str = "CGPreflightScreenCaptureAccess";
+    const CG_DISPLAY_STREAM_SYMBOL: &str = "CGDisplayStreamCreateWithDispatchQueue";
+    const IOHID_CHECK_ACCESS_SYMBOL: &str = "IOHIDCheckAccess";
+    const AX_TRUSTED_OPTIONS_SYMBOL: &str = "AXIsProcessTrustedWithOptions";
+    const AX_TRUSTED_CHECK_OPTION_PROMPT: &str = "AXTrustedCheckOptionPrompt";
+    const SETTINGS_PANE_SCREEN_RECORDING: &str =
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
+    const SETTINGS_PANE_ACCESSIBILITY: &str =
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
+    const SETTINGS_PANE_INPUT_MONITORING: &str =
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent";
+    const SETTINGS_PANE_SECURITY: &str = "x-apple.systempreferences:com.apple.preference.security";
+    const SYSTEM_OPEN_COMMAND: &str = "open";
 
     pub fn check_screen_recording_permission() -> bool {
         log::info!(
@@ -52,15 +74,15 @@ pub mod macos {
         has_permission
     }
 
-    pub fn open_screen_recording_settings() {
+    pub fn open_screen_recording_settings() -> bool {
         log::info!("{} Opening screen recording settings", LOG_TAG_PERMISSIONS);
-        open_system_preferences("Screen Recording");
+        open_system_preferences(SCREEN_RECORDING_PERMISSION)
     }
 
     #[allow(dead_code)]
-    pub fn open_accessibility_settings() {
+    pub fn open_accessibility_settings() -> bool {
         log::info!("{} Opening accessibility settings", LOG_TAG_PERMISSIONS);
-        open_system_preferences("Accessibility");
+        open_system_preferences(ACCESSIBILITY_PERMISSION)
     }
 
     pub fn check_input_monitoring_permission() -> bool {
@@ -85,17 +107,26 @@ pub mod macos {
         has_permission
     }
 
-    pub fn open_input_monitoring_settings() {
+    pub fn open_input_monitoring_settings() -> bool {
         log::info!("{} Opening input monitoring settings", LOG_TAG_PERMISSIONS);
-        open_system_preferences("Input Monitoring");
+        open_system_preferences(INPUT_MONITORING_PERMISSION)
+    }
+
+    fn build_c_string(value: &'static str) -> Option<CString> {
+        match CString::new(value) {
+            Ok(c_string) => Some(c_string),
+            Err(error) => {
+                log::error!("{} Failed to build CString: {}", LOG_TAG_PERMISSIONS, error);
+                None
+            }
+        }
     }
 
     fn check_screen_recording_permission_internal() -> bool {
         unsafe {
-            let framework_path = std::ffi::CString::new(
-                "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics",
-            )
-            .unwrap();
+            let Some(framework_path) = build_c_string(CORE_GRAPHICS_FRAMEWORK_PATH) else {
+                return false;
+            };
 
             let lib = libc::dlopen(framework_path.as_ptr(), libc::RTLD_LAZY);
 
@@ -109,7 +140,10 @@ pub mod macos {
 
             type CGPreflightScreenCaptureAccessFn = unsafe extern "C" fn() -> bool;
 
-            let func_name = std::ffi::CString::new("CGPreflightScreenCaptureAccess").unwrap();
+            let Some(func_name) = build_c_string(CG_PREFLIGHT_ACCESS_SYMBOL) else {
+                libc::dlclose(lib);
+                return false;
+            };
             let func_ptr = libc::dlsym(lib, func_name.as_ptr());
 
             if func_ptr.is_null() {
@@ -144,8 +178,9 @@ pub mod macos {
                 *const std::ffi::c_void,
             ) -> *const std::ffi::c_void;
 
-            let func_name =
-                std::ffi::CString::new("CGDisplayStreamCreateWithDispatchQueue").unwrap();
+            let Some(func_name) = build_c_string(CG_DISPLAY_STREAM_SYMBOL) else {
+                return false;
+            };
             let func_ptr = libc::dlsym(lib, func_name.as_ptr());
 
             if func_ptr.is_null() {
@@ -165,8 +200,9 @@ pub mod macos {
 
     fn check_input_monitoring_permission_internal() -> bool {
         unsafe {
-            let framework_path =
-                std::ffi::CString::new("/System/Library/Frameworks/IOKit.framework/IOKit").unwrap();
+            let Some(framework_path) = build_c_string(IOKIT_FRAMEWORK_PATH) else {
+                return false;
+            };
 
             let lib = libc::dlopen(framework_path.as_ptr(), libc::RTLD_LAZY);
 
@@ -177,7 +213,10 @@ pub mod macos {
 
             type IOHIDCheckAccessFn = unsafe extern "C" fn(u32) -> u32;
 
-            let func_name = std::ffi::CString::new("IOHIDCheckAccess").unwrap();
+            let Some(func_name) = build_c_string(IOHID_CHECK_ACCESS_SYMBOL) else {
+                libc::dlclose(lib);
+                return false;
+            };
             let func_ptr = libc::dlsym(lib, func_name.as_ptr());
 
             if func_ptr.is_null() {
@@ -209,14 +248,12 @@ pub mod macos {
     }
 
     fn check_accessibility_permission_internal(prompt: bool) -> bool {
-        use std::ffi::CString;
         use std::ptr;
 
         unsafe {
-            let framework_path = CString::new(
-                "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices",
-            )
-            .unwrap();
+            let Some(framework_path) = build_c_string(APPLICATION_SERVICES_FRAMEWORK_PATH) else {
+                return false;
+            };
 
             let lib = libc::dlopen(framework_path.as_ptr(), libc::RTLD_LAZY);
 
@@ -231,7 +268,10 @@ pub mod macos {
             type AXIsProcessTrustedWithOptionsFn =
                 unsafe extern "C" fn(*const libc::c_void) -> bool;
 
-            let func_name = CString::new("AXIsProcessTrustedWithOptions").unwrap();
+            let Some(func_name) = build_c_string(AX_TRUSTED_OPTIONS_SYMBOL) else {
+                libc::dlclose(lib);
+                return false;
+            };
             let func_ptr = libc::dlsym(lib, func_name.as_ptr());
 
             if func_ptr.is_null() {
@@ -247,7 +287,7 @@ pub mod macos {
                 std::mem::transmute(func_ptr);
 
             let result = if prompt {
-                let key = CFString::from_static_string("AXTrustedCheckOptionPrompt");
+                let key = CFString::from_static_string(AX_TRUSTED_CHECK_OPTION_PROMPT);
                 let value = CFBoolean::true_value();
                 let options = CFDictionary::from_CFType_pairs(&[(key, value.as_CFType())]);
                 ax_is_process_trusted(options.as_concrete_TypeRef() as *const libc::c_void)
@@ -261,21 +301,15 @@ pub mod macos {
         }
     }
 
-    fn open_system_preferences(permission_type: &str) {
+    fn open_system_preferences(permission_type: &str) -> bool {
         let pane = match permission_type {
-            "Screen Recording" => {
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
-            }
-            "Accessibility" => {
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-            }
-            "Input Monitoring" => {
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
-            }
-            _ => "x-apple.systempreferences:com.apple.preference.security",
+            SCREEN_RECORDING_PERMISSION => SETTINGS_PANE_SCREEN_RECORDING,
+            ACCESSIBILITY_PERMISSION => SETTINGS_PANE_ACCESSIBILITY,
+            INPUT_MONITORING_PERMISSION => SETTINGS_PANE_INPUT_MONITORING,
+            _ => SETTINGS_PANE_SECURITY,
         };
 
-        let result = Command::new("open").arg(pane).status();
+        let result = Command::new(SYSTEM_OPEN_COMMAND).arg(pane).status();
 
         match result {
             Ok(status) if status.success() => {
@@ -284,6 +318,7 @@ pub mod macos {
                     LOG_TAG_PERMISSIONS,
                     permission_type
                 );
+                true
             }
             Ok(status) => {
                 log::error!(
@@ -291,6 +326,7 @@ pub mod macos {
                     LOG_TAG_PERMISSIONS,
                     status.code()
                 );
+                false
             }
             Err(error) => {
                 log::error!(
@@ -298,6 +334,7 @@ pub mod macos {
                     LOG_TAG_PERMISSIONS,
                     error
                 );
+                false
             }
         }
     }
@@ -317,9 +354,15 @@ pub mod macos {
         true
     }
 
-    pub fn open_screen_recording_settings() {}
+    pub fn open_screen_recording_settings() -> bool {
+        false
+    }
 
-    pub fn open_accessibility_settings() {}
+    pub fn open_accessibility_settings() -> bool {
+        false
+    }
 
-    pub fn open_input_monitoring_settings() {}
+    pub fn open_input_monitoring_settings() -> bool {
+        false
+    }
 }

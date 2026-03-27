@@ -2,6 +2,12 @@ use std::sync::OnceLock;
 use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
+use crate::global_constants;
+
+const TRAY_MENU_SHOW_WINDOW: &str = "Show Window";
+const TRAY_MENU_SELECT_WINDOW: &str = "Select Window to Capture...";
+const TRAY_MENU_QUIT: &str = "Quit";
+
 static SHOW_WINDOW_ID: OnceLock<MenuId> = OnceLock::new();
 static SELECT_WINDOW_ID: OnceLock<MenuId> = OnceLock::new();
 static SETTINGS_ID: OnceLock<MenuId> = OnceLock::new();
@@ -36,10 +42,10 @@ impl SystemTray {
         let icon = Icon::from_rgba(icon_rgba.into_raw(), width, height)?;
 
         let menu = Menu::new();
-        let show_window_item = MenuItem::new("Show Window", true, None);
-        let select_window_item = MenuItem::new("Select Window to Capture...", true, None);
-        let settings_item = MenuItem::new("Settings", true, None);
-        let quit_item = MenuItem::new("Quit", true, None);
+        let show_window_item = MenuItem::new(TRAY_MENU_SHOW_WINDOW, true, None);
+        let select_window_item = MenuItem::new(TRAY_MENU_SELECT_WINDOW, true, None);
+        let settings_item = MenuItem::new(global_constants::SETTINGS_WINDOW_TITLE, true, None);
+        let quit_item = MenuItem::new(TRAY_MENU_QUIT, true, None);
 
         let _ = SHOW_WINDOW_ID.set(show_window_item.id().clone());
         let _ = SELECT_WINDOW_ID.set(select_window_item.id().clone());
@@ -61,7 +67,7 @@ impl SystemTray {
 
         let tray_icon = TrayIconBuilder::new()
             .with_menu(Box::new(menu.clone()))
-            .with_tooltip("Circle to Search")
+            .with_tooltip(global_constants::APPLICATION_TITLE)
             .with_icon(icon)
             .build()?;
 
