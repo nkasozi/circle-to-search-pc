@@ -10,6 +10,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   test:
@@ -158,7 +159,7 @@ jobs:
           echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" | base64 -d > AppDir/usr/share/icons/hicolor/256x256/apps/circle-to-search-pc.png
 
           ./linuxdeploy --appdir AppDir --output appimage
-          mv Circle_to_Search_PC-*.AppImage ${{ matrix.asset_name }}
+          mv Circle_to_Search-*.AppImage ${{ matrix.asset_name }}
 
       - name: Create DMG (macOS)
         if: matrix.os == 'macos-latest'
