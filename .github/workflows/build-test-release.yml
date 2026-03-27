@@ -74,10 +74,6 @@ jobs:
             target: x86_64-unknown-linux-gnu
             artifact_name: circle-to-search-pc
             asset_name: circle-to-search-pc-linux-x86_64.AppImage
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            artifact_name: circle-to-search-pc
-            asset_name: circle-to-search-pc-macos-aarch64.dmg
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact_name: circle-to-search-pc.exe
@@ -105,10 +101,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y tesseract-ocr libtesseract-dev libleptonica-dev
 
-      - name: Install Tesseract (macOS)
-        if: matrix.os == 'macos-latest'
-        run: brew install tesseract
-
       - name: Install Tesseract (Windows)
         if: matrix.os == 'windows-latest'
         run: |
@@ -126,8 +118,8 @@ jobs:
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Strip binary (Linux and macOS)
-        if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
+      - name: Strip binary (Linux)
+        if: matrix.os == 'ubuntu-latest'
         run: strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
 
       - name: Create AppImage (Linux)
@@ -160,30 +152,6 @@ jobs:
 
           ./linuxdeploy --appdir AppDir --output appimage
           mv Circle_to_Search-*.AppImage ${{ matrix.asset_name }}
-
-      - name: Create DMG (macOS)
-        if: matrix.os == 'macos-latest'
-        run: |
-          APP_BUNDLE="Circle to Search.app"
-          mkdir -p "dmg-contents/${APP_BUNDLE}/Contents/MacOS"
-          mkdir -p "dmg-contents/${APP_BUNDLE}/Contents/Resources/tessdata"
-
-          cp "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}" \
-            "dmg-contents/${APP_BUNDLE}/Contents/MacOS/"
-          chmod +x "dmg-contents/${APP_BUNDLE}/Contents/MacOS/${{ matrix.artifact_name }}"
-
-          cp Info.plist "dmg-contents/${APP_BUNDLE}/Contents/"
-          cp tessdata/eng.traineddata "dmg-contents/${APP_BUNDLE}/Contents/Resources/tessdata/"
-          cp assets/icons/app_icon.icns "dmg-contents/${APP_BUNDLE}/Contents/Resources/"
-
-          hdiutil create \
-            -volname "Circle to Search" \
-            -srcfolder dmg-contents \
-            -ov \
-            -format UDZO \
-            "${{ matrix.asset_name }}"
-
-          shasum -a 256 "${{ matrix.asset_name }}" > "${{ matrix.asset_name }}.sha256"
 
       - name: Create Windows Installer
         if: matrix.os == 'windows-latest'
@@ -243,17 +211,78 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload SHA256 (macOS)
-        if: matrix.os == 'macos-latest'
+  build-and-release-macos:
+    name: Build and Release (macOS aarch64)
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Download Tesseract Data Files
+        run: |
+          mkdir -p tessdata
+          cd tessdata
+          curl -L -o eng.traineddata https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
+
+      - name: Install Tesseract
+        run: brew install tesseract
+
+      - name: Build release binary
+        run: cargo build --release --target aarch64-apple-darwin
+
+      - name: Strip binary
+        run: strip target/aarch64-apple-darwin/release/circle-to-search-pc
+
+      - name: Create DMG
+        run: |
+          APP_BUNDLE="Circle to Search.app"
+          mkdir -p "dmg-contents/${APP_BUNDLE}/Contents/MacOS"
+          mkdir -p "dmg-contents/${APP_BUNDLE}/Contents/Resources/tessdata"
+
+          cp "target/aarch64-apple-darwin/release/circle-to-search-pc" \
+            "dmg-contents/${APP_BUNDLE}/Contents/MacOS/"
+          chmod +x "dmg-contents/${APP_BUNDLE}/Contents/MacOS/circle-to-search-pc"
+
+          cp Info.plist "dmg-contents/${APP_BUNDLE}/Contents/"
+          cp tessdata/eng.traineddata "dmg-contents/${APP_BUNDLE}/Contents/Resources/tessdata/"
+          cp assets/icons/app_icon.icns "dmg-contents/${APP_BUNDLE}/Contents/Resources/"
+
+          hdiutil create \
+            -volname "Circle to Search" \
+            -srcfolder dmg-contents \
+            -ov \
+            -format UDZO \
+            "circle-to-search-pc-macos-aarch64.dmg"
+
+          shasum -a 256 "circle-to-search-pc-macos-aarch64.dmg" > "circle-to-search-pc-macos-aarch64.dmg.sha256"
+
+      - name: Upload Release Asset
         uses: softprops/action-gh-release@v1
         with:
-          files: ${{ matrix.asset_name }}.sha256
+          files: circle-to-search-pc-macos-aarch64.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload SHA256
+        uses: softprops/action-gh-release@v1
+        with:
+          files: circle-to-search-pc-macos-aarch64.dmg.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   update-homebrew-tap:
     name: Update Homebrew Tap
-    needs: build-and-release
+    needs: build-and-release-macos
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
