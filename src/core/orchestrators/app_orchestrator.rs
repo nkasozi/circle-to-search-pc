@@ -670,12 +670,9 @@ impl AppOrchestrator {
                 }
 
                 self.windows.insert(id, AppWindow::InteractiveOcr(view));
-                self.status = "Processing OCR...".to_string();
+                self.status = "Ready".to_string();
 
-                return Task::batch(vec![
-                    task.discard(),
-                    Task::done(OrchestratorMessage::ProcessOcr(id, buffer)),
-                ]);
+                return task.discard();
             }
             Err(e) => {
                 log::error!("[ORCHESTRATOR] Failed to crop image: {}", e);
@@ -852,6 +849,17 @@ impl AppOrchestrator {
                         window::close(window_id),
                         self.update(OrchestratorMessage::CaptureScreen),
                     ]);
+                }
+            }
+            crate::presentation::InteractiveOcrMessage::StartOcr => {
+                log::info!(
+                    "[ORCHESTRATOR] User triggered OCR for window {:?}",
+                    window_id
+                );
+                if let Some(AppWindow::InteractiveOcr(view)) = self.windows.get(&window_id) {
+                    let buffer = view.get_capture_buffer().clone();
+                    self.status = "Processing OCR...".to_string();
+                    return Task::done(OrchestratorMessage::ProcessOcr(window_id, buffer));
                 }
             }
             crate::presentation::InteractiveOcrMessage::CancelOcr => {

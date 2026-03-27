@@ -41,6 +41,7 @@ pub enum SaveState {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum OcrState {
+    Idle,
     Processing,
     Failed(String),
     Completed,
@@ -129,6 +130,7 @@ pub enum InteractiveOcrMessage {
     #[allow(dead_code)]
     HideSaveToast,
     ToggleToolbarPosition,
+    StartOcr,
     CancelOcr,
     #[allow(dead_code)]
     OcrFailed(String),
@@ -171,7 +173,7 @@ impl InteractiveOcrView {
             draw_mode_enabled: false,
             show_help_hint: false,
             toolbar_offset: Vector::new(0.0, 0.0),
-            ocr_state: OcrState::Processing,
+            ocr_state: OcrState::Idle,
             draw_panel_position: Point::new(16.0, 60.0),
             draw_panel_is_dragging: false,
             draw_panel_drag_offset: None,
@@ -463,6 +465,10 @@ impl InteractiveOcrView {
                     log::debug!("[INTERACTIVE_OCR] Moved toolbar to top");
                 }
             }
+            InteractiveOcrMessage::StartOcr => {
+                log::info!("[INTERACTIVE_OCR] User requested OCR start");
+                self.ocr_state = OcrState::Processing;
+            }
             InteractiveOcrMessage::CancelOcr => {
                 log::info!("[INTERACTIVE_OCR] OCR cancellation requested by user");
             }
@@ -472,7 +478,7 @@ impl InteractiveOcrView {
             }
             InteractiveOcrMessage::RetryOcr => {
                 log::info!("[INTERACTIVE_OCR] Retrying OCR process");
-                self.ocr_state = OcrState::Processing;
+                self.ocr_state = OcrState::Idle;
                 self.ocr_result = None;
                 self.char_positions.clear();
                 self.selected_chars.clear();
@@ -614,6 +620,7 @@ impl InteractiveOcrView {
             "🖊️ Draw Mode ON - Click and drag to draw".to_string()
         } else {
             match &self.ocr_state {
+                OcrState::Idle => "Perform OCR text recognition?".to_string(),
                 OcrState::Processing => "Processing OCR...".to_string(),
                 OcrState::Failed(_) => String::new(),
                 OcrState::Completed => {
@@ -634,7 +641,47 @@ impl InteractiveOcrView {
         };
 
         let banner_inner_content: Element<'_, InteractiveOcrMessage> =
-            if matches!(self.ocr_state, OcrState::Processing) {
+            if matches!(self.ocr_state, OcrState::Idle) {
+                let prompt_label = text("Perform OCR text recognition?")
+                    .size(14)
+                    .style(|_theme| iced::widget::text::Style {
+                        color: Some(Color::WHITE),
+                    });
+
+                let confirm_btn =
+                    button(
+                        text("✓")
+                            .size(14)
+                            .style(|_theme| iced::widget::text::Style {
+                                color: Some(Color::WHITE),
+                            }),
+                    )
+                    .padding([2, 10])
+                    .style(|_theme: &iced::Theme, status| {
+                        let bg = match status {
+                            button::Status::Hovered => Color::from_rgba(0.1, 0.7, 0.2, 0.95),
+                            button::Status::Pressed => Color::from_rgba(0.05, 0.5, 0.1, 0.95),
+                            _ => Color::from_rgba(0.1, 0.55, 0.15, 0.9),
+                        };
+                        button::Style {
+                            background: Some(iced::Background::Color(bg)),
+                            text_color: Color::WHITE,
+                            border: Border {
+                                color: Color::from_rgba(0.3, 0.9, 0.4, 0.6),
+                                width: 1.0,
+                                radius: 4.0.into(),
+                            },
+                            shadow: Shadow::default(),
+                            snap: false,
+                        }
+                    })
+                    .on_press(InteractiveOcrMessage::StartOcr);
+
+                row![prompt_label, confirm_btn]
+                    .spacing(10)
+                    .align_y(Alignment::Center)
+                    .into()
+            } else if matches!(self.ocr_state, OcrState::Processing) {
                 let label =
                     text("Processing OCR...")
                         .size(14)
