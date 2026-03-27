@@ -414,10 +414,33 @@ impl AppOrchestrator {
     fn handle_open_main_window(&mut self) -> Task<OrchestratorMessage> {
         log::debug!("[ORCHESTRATOR] Opening main window");
 
+        let ocr_window_ids: Vec<Id> = self
+            .windows
+            .iter()
+            .filter_map(|(id, window)| {
+                matches!(window, AppWindow::InteractiveOcr(_)).then_some(*id)
+            })
+            .collect();
+
+        let focus_ocr_windows: Vec<Task<OrchestratorMessage>> = ocr_window_ids
+            .iter()
+            .map(|id| {
+                log::info!(
+                    "[ORCHESTRATOR] Bringing capture result window {:?} to front",
+                    id
+                );
+                window::gain_focus(*id)
+            })
+            .collect();
+
         if let Some(id) = self.main_window_id {
             if self.windows.contains_key(&id) {
                 log::info!("[ORCHESTRATOR] Main window already exists, bringing to front");
-                return window::gain_focus(id);
+                return Task::batch(
+                    std::iter::once(window::gain_focus(id))
+                        .chain(focus_ocr_windows)
+                        .collect::<Vec<_>>(),
+                );
             }
         }
 
@@ -431,7 +454,11 @@ impl AppOrchestrator {
         self.main_window_id = Some(id);
         self.windows.insert(id, AppWindow::Main);
         log::info!("[ORCHESTRATOR] Main window created with ID: {:?}", id);
-        task.discard().chain(window::gain_focus(id))
+        Task::batch(
+            std::iter::once(task.discard().chain(window::gain_focus(id)))
+                .chain(focus_ocr_windows)
+                .collect::<Vec<_>>(),
+        )
     }
 
     fn handle_capture_screen(&mut self) -> Task<OrchestratorMessage> {
