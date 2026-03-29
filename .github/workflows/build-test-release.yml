@@ -11,6 +11,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  USE_OPTIMIZED_BUILD: 'true'
 
 jobs:
   test:
@@ -115,12 +116,23 @@ jobs:
             libatk1.0-dev libgdk-pixbuf2.0-dev libpipewire-0.3-dev libgbm-dev \
             libegl1-mesa-dev libwayland-dev libxkbcommon-dev
 
+      - name: Set build profile
+        shell: bash
+        run: |
+          if [ "$USE_OPTIMIZED_BUILD" = "true" ]; then
+            echo "CARGO_PROFILE=release-optimized" >> $GITHUB_ENV
+            echo "BUILD_OUTPUT_DIR=release-optimized" >> $GITHUB_ENV
+          else
+            echo "CARGO_PROFILE=release" >> $GITHUB_ENV
+            echo "BUILD_OUTPUT_DIR=release" >> $GITHUB_ENV
+          fi
+
       - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --profile ${{ env.CARGO_PROFILE }} --target ${{ matrix.target }}
 
       - name: Strip binary (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+        run: strip target/${{ matrix.target }}/${{ env.BUILD_OUTPUT_DIR }}/${{ matrix.artifact_name }}
 
       - name: Create AppImage (Linux)
         if: matrix.os == 'ubuntu-latest'
@@ -129,7 +141,7 @@ jobs:
           chmod +x linuxdeploy
 
           mkdir -p AppDir/usr/bin
-          cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} AppDir/usr/bin/
+          cp target/${{ matrix.target }}/${{ env.BUILD_OUTPUT_DIR }}/${{ matrix.artifact_name }} AppDir/usr/bin/
 
           mkdir -p AppDir/usr/share/tessdata
           cp tessdata/eng.traineddata AppDir/usr/share/tessdata/
@@ -157,7 +169,7 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           New-Item -ItemType Directory -Force -Path installer_files
-          Copy-Item "target\${{ matrix.target }}\release\circle-to-search-pc.exe" -Destination installer_files\
+          Copy-Item "target\${{ matrix.target }}\${{ env.BUILD_OUTPUT_DIR }}\circle-to-search-pc.exe" -Destination installer_files\
           Copy-Item tessdata\eng.traineddata -Destination installer_files\
 
           $installerScript = @"
@@ -237,11 +249,21 @@ jobs:
       - name: Install Tesseract
         run: brew install tesseract
 
+      - name: Set build profile
+        run: |
+          if [ "$USE_OPTIMIZED_BUILD" = "true" ]; then
+            echo "CARGO_PROFILE=release-optimized" >> $GITHUB_ENV
+            echo "BUILD_OUTPUT_DIR=release-optimized" >> $GITHUB_ENV
+          else
+            echo "CARGO_PROFILE=release" >> $GITHUB_ENV
+            echo "BUILD_OUTPUT_DIR=release" >> $GITHUB_ENV
+          fi
+
       - name: Build release binary
-        run: cargo build --release --target aarch64-apple-darwin
+        run: cargo build --profile ${{ env.CARGO_PROFILE }} --target aarch64-apple-darwin
 
       - name: Strip binary
-        run: strip target/aarch64-apple-darwin/release/circle-to-search-pc
+        run: strip target/aarch64-apple-darwin/${{ env.BUILD_OUTPUT_DIR }}/circle-to-search-pc
 
       - name: Create DMG
         run: |
@@ -249,7 +271,7 @@ jobs:
           mkdir -p "dmg-contents/${APP_BUNDLE}/Contents/MacOS"
           mkdir -p "dmg-contents/${APP_BUNDLE}/Contents/Resources/tessdata"
 
-          cp "target/aarch64-apple-darwin/release/circle-to-search-pc" \
+          cp "target/aarch64-apple-darwin/${{ env.BUILD_OUTPUT_DIR }}/circle-to-search-pc" \
             "dmg-contents/${APP_BUNDLE}/Contents/MacOS/"
           chmod +x "dmg-contents/${APP_BUNDLE}/Contents/MacOS/circle-to-search-pc"
 
