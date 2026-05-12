@@ -78,6 +78,40 @@ pub const STATUS_CAPTURING_SCREEN: &str = "Capturing screen...";
 pub const STATUS_OVERLAY_READY: &str = "Overlay ready!";
 pub const STATUS_PROCESSING_SELECTION: &str = "Processing selection...";
 pub const STATUS_READY_SIMPLE: &str = "Ready";
+
+pub const LOG_TAG_RECORDING: &str = "[RECORDING]";
+
+pub const FFMPEG_BINARY_NAME: &str = "ffmpeg";
+pub const FFMPEG_VIDEO_FORMAT: &str = "rawvideo";
+pub const FFMPEG_PIXEL_FORMAT: &str = "rgba";
+pub const FFMPEG_AUDIO_FORMAT: &str = "s16le";
+pub const FFMPEG_VIDEO_CODEC: &str = "libx264";
+pub const FFMPEG_AUDIO_CODEC: &str = "aac";
+pub const FFMPEG_VIDEO_PRESET: &str = "fast";
+pub const FFMPEG_OUTPUT_FORMAT: &str = "mp4";
+pub const FFMPEG_LOG_LEVEL: &str = "warning";
+
+pub const DEFAULT_RECORDING_FRAMES_PER_SECOND: u32 = 30;
+pub const DEFAULT_RECORDING_WEBCAM_PIP_SIZE_PERCENTAGE: f32 = 0.2;
+pub const DEFAULT_AUDIO_SAMPLE_RATE: u32 = 44100;
+pub const DEFAULT_AUDIO_CHANNEL_COUNT: u16 = 2;
+
+pub const RECORDING_FRAME_CHANNEL_BUFFER_SIZE: usize = 5;
+pub const RECORDING_AUDIO_CHANNEL_BUFFER_SIZE: usize = 10;
+pub const RECORDING_PREVIEW_CHANNEL_BUFFER_SIZE: usize = 3;
+
+pub const DEFAULT_WEBCAM_CAPTURE_WIDTH: u32 = 480;
+pub const DEFAULT_WEBCAM_CAPTURE_HEIGHT: u32 = 360;
+
+pub const HOTKEY_RECORD: &str = "Alt+Shift+R";
+
+pub const MESSAGE_RECORDING_STARTED: &str = "screen recording started";
+pub const MESSAGE_RECORDING_PAUSED: &str = "screen recording paused";
+pub const MESSAGE_RECORDING_RESUMED: &str = "screen recording resumed";
+pub const MESSAGE_RECORDING_STOPPED: &str = "screen recording stopped";
+pub const MESSAGE_RECORDING_FAILED: &str = "screen recording failed";
+pub const MESSAGE_FFMPEG_NOT_FOUND: &str = "ffmpeg not found on system PATH";
+pub const MESSAGE_FFMPEG_DETECTED: &str = "ffmpeg detected on system";
 pub const STATUS_OCR_COMPLETE: &str = "OCR complete";
 pub const STATUS_READY: &str = "Ready - Press Alt+Shift+S to capture";
 pub const STATUS_PROCESSING_OCR: &str = "Processing OCR...";
@@ -131,6 +165,9 @@ pub const MAIN_WINDOW_OR_TEXT: &str = "OR";
 pub const MAIN_WINDOW_KEEP_RUNNING_LABEL: &str = "Keep running in background";
 pub const MAIN_WINDOW_ICON_SETTINGS: &str = "⚙";
 pub const MAIN_WINDOW_SETTINGS_BUTTON_LABEL: &str = "Settings";
+pub const MAIN_WINDOW_ICON_RECORD: &str = "⏺";
+pub const MAIN_WINDOW_RECORD_BUTTON_LABEL: &str = "Record Screen";
+pub const MAIN_WINDOW_RECORD_HOTKEY_HINT_TEMPLATE: &str = "Or press {hotkey} anywhere";
 pub const MAIN_WINDOW_HOTKEY_TEMPLATE_TOKEN: &str = "{hotkey}";
 pub const MAIN_WINDOW_STATUS_ICON_FILLED: &str = "●";
 pub const MAIN_WINDOW_STATUS_ICON_EMPTY: &str = "○";

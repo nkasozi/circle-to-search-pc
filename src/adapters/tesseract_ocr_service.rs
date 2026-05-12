@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use image::DynamicImage;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tesseract_static::parse::ParsedHocr;
 use tesseract_static::tesseract::Tesseract;
 
@@ -9,6 +9,10 @@ use crate::core::interfaces::adapters::OcrService;
 use crate::core::models::{DetectedText, DetectedWord, OcrResult};
 
 const TRAINING_DATA: &[u8] = include_bytes!("../../tessdata/eng.traineddata");
+const APPLICATION_DIRECTORY_NAME: &str = "circle-to-search-pc";
+const TESSDATA_DIRECTORY_NAME: &str = "tessdata";
+const TRAINING_DATA_FILE_NAME: &str = "eng.traineddata";
+const TRAINING_LANGUAGE: &str = "eng";
 
 fn get_ocr_replacements() -> Vec<(&'static str, &'static str)> {
     vec![
@@ -170,23 +174,52 @@ impl TesseractOcrService {
     pub fn build() -> Result<Self> {
         log::info!("[TESSERACT_OCR] Initializing Tesseract OCR service");
 
-        let tessdata_dir = std::env::temp_dir().join("circle-to-search-tessdata");
-        std::fs::create_dir_all(&tessdata_dir)
-            .context("Failed to create tessdata directory in temp folder")?;
-
-        let eng_traineddata_path = tessdata_dir.join("eng.traineddata");
-        if !eng_traineddata_path.exists() {
-            log::info!(
-                "[TESSERACT_OCR] Extracting training data to {:?}",
-                eng_traineddata_path
-            );
-            std::fs::write(&eng_traineddata_path, TRAINING_DATA)
-                .context("Failed to write eng.traineddata to temp directory")?;
-        }
+        let tessdata_dir = Self::build_tessdata_dir_path()?;
+        Self::ensure_tessdata_ready_at_path(&tessdata_dir)?;
 
         log::info!("[TESSERACT_OCR] Using tessdata from: {:?}", tessdata_dir);
 
         Ok(Self { tessdata_dir })
+    }
+
+    fn build_tessdata_dir_path() -> Result<PathBuf> {
+        let data_local_dir =
+            dirs::data_local_dir().context("Could not find local data directory")?;
+
+        Ok(data_local_dir
+            .join(APPLICATION_DIRECTORY_NAME)
+            .join(TESSDATA_DIRECTORY_NAME))
+    }
+
+    fn ensure_tessdata_ready(&self) -> Result<()> {
+        Self::ensure_tessdata_ready_at_path(&self.tessdata_dir)
+    }
+
+    fn ensure_tessdata_ready_at_path(tessdata_dir: &Path) -> Result<()> {
+        std::fs::create_dir_all(tessdata_dir).with_context(|| {
+            format!("Failed to create tessdata directory at {:?}", tessdata_dir)
+        })?;
+
+        let eng_traineddata_path = tessdata_dir.join(TRAINING_DATA_FILE_NAME);
+        let expected_training_data_size = TRAINING_DATA.len() as u64;
+        let should_write_training_data = std::fs::metadata(&eng_traineddata_path)
+            .map(|metadata| metadata.len() != expected_training_data_size)
+            .unwrap_or(true);
+
+        if should_write_training_data {
+            log::info!(
+                "[TESSERACT_OCR] Writing training data to {:?}",
+                eng_traineddata_path
+            );
+            std::fs::write(&eng_traineddata_path, TRAINING_DATA).with_context(|| {
+                format!(
+                    "Failed to write {} to {:?}",
+                    TRAINING_DATA_FILE_NAME, eng_traineddata_path
+                )
+            })?;
+        }
+
+        Ok(())
     }
 }
 
@@ -199,6 +232,8 @@ impl OcrService for TesseractOcrService {
             image.width(),
             image.height()
         );
+
+        self.ensure_tessdata_ready()?;
 
         let rgb_image = image.to_rgb8();
         let width = rgb_image.width() as i32;
@@ -215,15 +250,17 @@ impl OcrService for TesseractOcrService {
             bytes_per_line
         );
 
-        let tesseract = Tesseract::new(Some(&self.tessdata_dir.display().to_string()), Some("eng"))
-            .map_err(|e| {
+        let tessdata_dir = self.tessdata_dir.display().to_string();
+        let tesseract = Tesseract::new(Some(&tessdata_dir), Some(TRAINING_LANGUAGE)).map_err(
+            |e| {
                 log::error!(
                     "[TESSERACT_OCR] Failed to initialize Tesseract with tessdata: {:?}, error: {:?}",
                     self.tessdata_dir,
                     e
                 );
                 anyhow::anyhow!("Failed to initialize Tesseract instance: {:?}", e)
-            })?;
+            },
+        )?;
 
         let mut tesseract = tesseract
             .set_frame(frame_data, width, height, bytes_per_pixel, bytes_per_line)
@@ -327,12 +364,37 @@ impl OcrService for TesseractOcrService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uuid::Uuid;
+
+    fn build_test_tessdata_dir() -> PathBuf {
+        std::env::temp_dir().join(format!("circle-to-search-tessdata-test-{}", Uuid::new_v4()))
+    }
 
     #[test]
     fn test_build_creates_service_successfully() {
         let result = TesseractOcrService::build();
 
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_ensure_tessdata_ready_recreates_missing_training_data_file() {
+        let tessdata_dir = build_test_tessdata_dir();
+
+        TesseractOcrService::ensure_tessdata_ready_at_path(&tessdata_dir).unwrap();
+
+        let eng_traineddata_path = tessdata_dir.join(TRAINING_DATA_FILE_NAME);
+        std::fs::remove_file(&eng_traineddata_path).unwrap();
+
+        TesseractOcrService::ensure_tessdata_ready_at_path(&tessdata_dir).unwrap();
+
+        assert!(eng_traineddata_path.exists());
+        assert_eq!(
+            std::fs::metadata(&eng_traineddata_path).unwrap().len(),
+            TRAINING_DATA.len() as u64
+        );
+
+        std::fs::remove_dir_all(&tessdata_dir).unwrap();
     }
 
     #[test]

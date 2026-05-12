@@ -16,6 +16,7 @@ use crate::global_constants;
 use crate::ports::{GlobalKeyboardEvent, TrayEvent};
 use crate::presentation::app_theme;
 use crate::presentation::{CaptureView, CaptureViewMessage, OnboardingMessage, OnboardingView};
+use crate::presentation::{RecordingView, RecordingViewMessage};
 use crate::presentation::{WindowPickerMessage, WindowPickerView};
 
 const CORRELATION_ID_STARTUP: &str = "startup";
@@ -25,6 +26,7 @@ mod capture;
 mod image_actions;
 mod interactive_ocr;
 mod onboarding;
+mod recording;
 mod settings;
 mod ui;
 mod window_lifecycle;
@@ -38,6 +40,7 @@ pub enum AppWindow {
     Onboarding(OnboardingView),
     Hidden,
     WindowPicker(WindowPickerView),
+    Recording(RecordingView),
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +60,7 @@ pub struct AppOrchestrator {
     onboarding_window_id: Option<Id>,
     hidden_window_id: Option<Id>,
     window_picker_window_id: Option<Id>,
+    recording_window_id: Option<Id>,
     status: String,
     settings: UserSettings,
     settings_window_id: Option<Id>,
@@ -120,6 +124,12 @@ pub enum OrchestratorMessage {
     CaptureSelectedWindow(u32),
     WindowCaptureComplete(CaptureBuffer),
     WindowCaptureError(String),
+    OpenRecording,
+    RecordingViewMessage(Id, RecordingViewMessage),
+    #[allow(dead_code)]
+    RecordingCompleted(Id, String),
+    #[allow(dead_code)]
+    RecordingFailed(Id, String),
 }
 
 impl std::fmt::Debug for OrchestratorMessage {
@@ -215,6 +225,16 @@ impl std::fmt::Debug for OrchestratorMessage {
             OrchestratorMessage::WindowCaptureError(e) => {
                 write!(f, "WindowCaptureError({})", e)
             }
+            OrchestratorMessage::OpenRecording => write!(f, "OpenRecording"),
+            OrchestratorMessage::RecordingViewMessage(id, _) => {
+                write!(f, "RecordingViewMessage({:?})", id)
+            }
+            OrchestratorMessage::RecordingCompleted(id, path) => {
+                write!(f, "RecordingCompleted({:?}, {})", id, path)
+            }
+            OrchestratorMessage::RecordingFailed(id, error) => {
+                write!(f, "RecordingFailed({:?}, {})", id, error)
+            }
         }
     }
 }
@@ -237,6 +257,7 @@ impl AppOrchestrator {
             onboarding_window_id: None,
             hidden_window_id: None,
             window_picker_window_id: None,
+            recording_window_id: None,
             status: global_constants::STATUS_INITIALIZING.to_string(),
             settings,
             settings_window_id: None,
@@ -610,6 +631,18 @@ impl AppOrchestrator {
                     }),
                 );
             }
+            OrchestratorMessage::OpenRecording => {
+                return self.handle_open_recording();
+            }
+            OrchestratorMessage::RecordingViewMessage(window_id, recording_msg) => {
+                return self.handle_recording_view_message(window_id, recording_msg);
+            }
+            OrchestratorMessage::RecordingCompleted(window_id, output_path) => {
+                return self.handle_recording_completed(window_id, output_path);
+            }
+            OrchestratorMessage::RecordingFailed(window_id, error) => {
+                return self.handle_recording_failed(window_id, error);
+            }
         }
 
         self.log_info_event(
@@ -638,6 +671,9 @@ impl AppOrchestrator {
             Some(AppWindow::WindowPicker(picker_view)) => picker_view
                 .render_ui()
                 .map(move |msg| OrchestratorMessage::WindowPickerMsg(window_id, msg)),
+            Some(AppWindow::Recording(recording_view)) => recording_view
+                .render_ui()
+                .map(move |msg| OrchestratorMessage::RecordingViewMessage(window_id, msg)),
             None => text(global_constants::UI_GENERIC_LOADING).into(),
         }
     }

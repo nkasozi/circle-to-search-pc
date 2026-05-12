@@ -6,10 +6,12 @@ use crate::global_constants;
 
 const TRAY_MENU_SHOW_WINDOW: &str = "Show Window";
 const TRAY_MENU_SELECT_WINDOW: &str = "Select Window to Capture...";
+const TRAY_MENU_RECORD_SCREEN: &str = "Record Screen";
 const TRAY_MENU_QUIT: &str = "Quit";
 
 static SHOW_WINDOW_ID: OnceLock<MenuId> = OnceLock::new();
 static SELECT_WINDOW_ID: OnceLock<MenuId> = OnceLock::new();
+static RECORD_SCREEN_ID: OnceLock<MenuId> = OnceLock::new();
 static SETTINGS_ID: OnceLock<MenuId> = OnceLock::new();
 static QUIT_ID: OnceLock<MenuId> = OnceLock::new();
 
@@ -18,6 +20,7 @@ pub struct SystemTray {
     _menu: Menu,
     _show_window_item: MenuItem,
     _select_window_item: MenuItem,
+    _record_screen_item: MenuItem,
     _settings_item: MenuItem,
     _quit_item: MenuItem,
 }
@@ -26,6 +29,7 @@ pub struct SystemTray {
 pub enum TrayEvent {
     ShowWindow,
     SelectWindow,
+    RecordScreen,
     OpenSettings,
     Quit,
 }
@@ -44,24 +48,28 @@ impl SystemTray {
         let menu = Menu::new();
         let show_window_item = MenuItem::new(TRAY_MENU_SHOW_WINDOW, true, None);
         let select_window_item = MenuItem::new(TRAY_MENU_SELECT_WINDOW, true, None);
+        let record_screen_item = MenuItem::new(TRAY_MENU_RECORD_SCREEN, true, None);
         let settings_item = MenuItem::new(global_constants::SETTINGS_WINDOW_TITLE, true, None);
         let quit_item = MenuItem::new(TRAY_MENU_QUIT, true, None);
 
         let _ = SHOW_WINDOW_ID.set(show_window_item.id().clone());
         let _ = SELECT_WINDOW_ID.set(select_window_item.id().clone());
+        let _ = RECORD_SCREEN_ID.set(record_screen_item.id().clone());
         let _ = SETTINGS_ID.set(settings_item.id().clone());
         let _ = QUIT_ID.set(quit_item.id().clone());
 
         log::info!(
-            "[SYSTEM_TRAY] Menu item IDs - Show: {:?}, SelectWindow: {:?}, Settings: {:?}, Quit: {:?}",
+            "[SYSTEM_TRAY] Menu item IDs - Show: {:?}, SelectWindow: {:?}, Record: {:?}, Settings: {:?}, Quit: {:?}",
             show_window_item.id(),
             select_window_item.id(),
+            record_screen_item.id(),
             settings_item.id(),
             quit_item.id()
         );
 
         menu.append(&show_window_item)?;
         menu.append(&select_window_item)?;
+        menu.append(&record_screen_item)?;
         menu.append(&settings_item)?;
         menu.append(&quit_item)?;
 
@@ -78,6 +86,7 @@ impl SystemTray {
             _menu: menu,
             _show_window_item: show_window_item,
             _select_window_item: select_window_item,
+            _record_screen_item: record_screen_item,
             _settings_item: settings_item,
             _quit_item: quit_item,
         })
@@ -112,6 +121,15 @@ impl TrayEvent {
         {
             log::info!("[SYSTEM_TRAY] Select Window clicked");
             return Some(TrayEvent::SelectWindow);
+        }
+
+        if RECORD_SCREEN_ID
+            .get()
+            .map(|id| id == event_id)
+            .unwrap_or(false)
+        {
+            log::info!("[SYSTEM_TRAY] Record Screen clicked");
+            return Some(TrayEvent::RecordScreen);
         }
 
         if SETTINGS_ID.get().map(|id| id == event_id).unwrap_or(false) {

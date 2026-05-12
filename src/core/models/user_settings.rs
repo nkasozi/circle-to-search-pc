@@ -4,6 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 use uuid::Uuid;
 
+use crate::core::models::recording::WebcamPipPosition;
 use crate::global_constants;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -106,6 +107,16 @@ pub struct UserSettings {
     pub install_id: Option<String>,
     #[serde(default = "UserSettings::default_screenshot_save_location")]
     pub screenshot_save_location: String,
+    #[serde(default = "UserSettings::default_recording_frames_per_second")]
+    pub recording_frames_per_second: u32,
+    #[serde(default)]
+    pub recording_webcam_pip_position: WebcamPipPosition,
+    #[serde(default = "UserSettings::default_recording_webcam_pip_size_percentage")]
+    pub recording_webcam_pip_size_percentage: f32,
+    #[serde(default = "UserSettings::default_recording_save_location")]
+    pub recording_save_location: String,
+    #[serde(default = "UserSettings::default_recording_hotkey")]
+    pub recording_hotkey: String,
 }
 
 impl Default for UserSettings {
@@ -126,6 +137,12 @@ impl Default for UserSettings {
             launch_at_login: false,
             install_id: None,
             screenshot_save_location: Self::default_screenshot_save_location(),
+            recording_frames_per_second: Self::default_recording_frames_per_second(),
+            recording_webcam_pip_position: WebcamPipPosition::default(),
+            recording_webcam_pip_size_percentage:
+                Self::default_recording_webcam_pip_size_percentage(),
+            recording_save_location: Self::default_recording_save_location(),
+            recording_hotkey: Self::default_recording_hotkey(),
         }
     }
 }
@@ -161,6 +178,28 @@ impl UserSettings {
             .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
             .to_string_lossy()
             .to_string()
+    }
+
+    pub fn default_recording_frames_per_second() -> u32 {
+        global_constants::DEFAULT_RECORDING_FRAMES_PER_SECOND
+    }
+
+    pub fn default_recording_webcam_pip_size_percentage() -> f32 {
+        global_constants::DEFAULT_RECORDING_WEBCAM_PIP_SIZE_PERCENTAGE
+    }
+
+    pub fn default_recording_save_location() -> String {
+        dirs::video_dir()
+            .unwrap_or_else(|| {
+                dirs::download_dir()
+                    .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
+            })
+            .to_string_lossy()
+            .to_string()
+    }
+
+    pub fn default_recording_hotkey() -> String {
+        global_constants::HOTKEY_RECORD.to_string()
     }
 
     pub fn load() -> anyhow::Result<Self> {
@@ -394,6 +433,12 @@ mod tests {
             launch_at_login: true,
             install_id: Some("test-id".to_string()),
             screenshot_save_location: "/tmp/screenshots".to_string(),
+            recording_frames_per_second: UserSettings::default_recording_frames_per_second(),
+            recording_webcam_pip_position: WebcamPipPosition::default(),
+            recording_webcam_pip_size_percentage:
+                UserSettings::default_recording_webcam_pip_size_percentage(),
+            recording_save_location: UserSettings::default_recording_save_location(),
+            recording_hotkey: UserSettings::default_recording_hotkey(),
         };
 
         let serialized = serde_json::to_string(&settings).unwrap();
@@ -486,6 +531,12 @@ mod tests {
             launch_at_login: true,
             install_id: Some("test-roundtrip-id".to_string()),
             screenshot_save_location: "/tmp/test-screenshots".to_string(),
+            recording_frames_per_second: UserSettings::default_recording_frames_per_second(),
+            recording_webcam_pip_position: WebcamPipPosition::default(),
+            recording_webcam_pip_size_percentage:
+                UserSettings::default_recording_webcam_pip_size_percentage(),
+            recording_save_location: UserSettings::default_recording_save_location(),
+            recording_hotkey: UserSettings::default_recording_hotkey(),
         };
 
         let test_file = temp_dir.join("test_settings.json");

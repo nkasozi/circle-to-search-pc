@@ -22,10 +22,11 @@ iced = { git = "https://github.com/iced-rs/iced.git", branch = "master", feature
     "tokio",
 ] }
 mouse_position = "0.1"
+nokhwa = { version = "0.10", features = ["input-native"] }
 rdev = { git = "https://github.com/rustdesk-org/rdev", branch = "master" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1.47", default-features = false, features = ["time", "fs", "macros", "rt"] }
+tokio = { version = "1.47", default-features = false, features = ["time", "fs", "macros", "rt", "process"] }
 tray-icon = "0.21"
 xcap = { version = "0.7", default-features = false }
 log = "0.4"
@@ -41,6 +42,7 @@ reqwest = { version = "0.13.1", features = ["multipart", "blocking", "json"] }
 urlencoding = "2.1"
 open = "5.3"
 base64 = "0.22"
+cpal = "0.17"
 dirs = "5.0"
 sysinfo = "0.33"
 auto-launch = "0.5"
