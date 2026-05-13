@@ -11,10 +11,14 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   USE_OPTIMIZED_BUILD: 'true'
 
+permissions: read-all
+
 jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout code
@@ -23,23 +27,26 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry
-        uses: actions/cache@v4
+      - name: Restore cargo registry cache
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-registry-
 
-      - name: Cache cargo index
-        uses: actions/cache@v4
+      - name: Restore cargo index cache
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-index-
 
-      - name: Cache cargo build
-        uses: actions/cache@v4
+      - name: Restore cargo build cache
+        uses: actions/cache/restore@v4
         with:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-build-target-
 
       - name: Install Tesseract
         run: |
@@ -53,17 +60,46 @@ jobs:
             libatk1.0-dev libgdk-pixbuf2.0-dev libpipewire-0.3-dev libgbm-dev \
             libegl1-mesa-dev libwayland-dev libxkbcommon-dev
 
+      - name: Fetch dependencies
+        run: cargo fetch --locked
+
       - name: Build
-        run: cargo build --verbose
+        run: cargo build --locked --verbose
+        env:
+          CARGO_NET_OFFLINE: 'true'
 
       - name: Run tests
-        run: cargo test --verbose
+        run: cargo test --locked --verbose
+        env:
+          CARGO_NET_OFFLINE: 'true'
+
+      - name: Save cargo registry cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Save cargo index cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Save cargo build cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
   release-approval:
     name: Release Approval
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions: {}
     environment:
       name: release
     steps:
@@ -188,8 +224,14 @@ jobs:
             echo "BUILD_OUTPUT_DIR=release" >> $GITHUB_ENV
           fi
 
+      - name: Fetch dependencies
+        shell: bash
+        run: cargo fetch --locked
+
       - name: Build release binary
-        run: cargo build --profile ${{ env.CARGO_PROFILE }} --target ${{ matrix.target }}
+        run: cargo build --locked --profile ${{ env.CARGO_PROFILE }} --target ${{ matrix.target }}
+        env:
+          CARGO_NET_OFFLINE: 'true'
 
       - name: Strip binary (Linux)
         if: matrix.os == 'ubuntu-latest'
@@ -321,8 +363,13 @@ jobs:
             echo "BUILD_OUTPUT_DIR=release" >> $GITHUB_ENV
           fi
 
+      - name: Fetch dependencies
+        run: cargo fetch --locked
+
       - name: Build release binary
-        run: cargo build --profile ${{ env.CARGO_PROFILE }} --target aarch64-apple-darwin
+        run: cargo build --locked --profile ${{ env.CARGO_PROFILE }} --target aarch64-apple-darwin
+        env:
+          CARGO_NET_OFFLINE: 'true'
 
       - name: Strip binary
         run: strip target/aarch64-apple-darwin/${{ env.BUILD_OUTPUT_DIR }}/circle-to-search-pc
@@ -371,6 +418,8 @@ jobs:
     needs: [build-and-release-macos, create-release-tag]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Resolve macOS release SHA256
         run: |
