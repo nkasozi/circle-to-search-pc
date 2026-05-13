@@ -3,8 +3,6 @@ name: Build, Test, and Release
 on:
   push:
     branches: [main, master]
-    tags:
-      - "v*"
   pull_request:
     branches: [main, master]
 
@@ -61,10 +59,73 @@ jobs:
       - name: Run tests
         run: cargo test --verbose
 
+  release-approval:
+    name: Release Approval
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: release
+    steps:
+      - name: Await manual approval
+        run: echo "Release deployment approved"
+
+  create-release-tag:
+    name: Create Release Tag
+    needs: release-approval
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.tag.outputs.release_tag }}
+      release_version: ${{ steps.tag.outputs.release_version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create and push next release tag
+        id: tag
+        run: |
+          set -euo pipefail
+
+          git fetch --tags --force
+
+          latest_tag=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+
+          if [ -z "$latest_tag" ]; then
+            next_major=0
+            next_minor=1
+            next_patch=0
+          else
+            version_numbers=${latest_tag#v}
+            next_major=$(echo "$version_numbers" | cut -d. -f1)
+            next_minor=$(echo "$version_numbers" | cut -d. -f2)
+            next_patch=$(echo "$version_numbers" | cut -d. -f3)
+            next_patch=$((next_patch + 1))
+          fi
+
+          next_tag="v${next_major}.${next_minor}.${next_patch}"
+
+          while git rev-parse "$next_tag" >/dev/null 2>&1; do
+            next_patch=$((next_patch + 1))
+            next_tag="v${next_major}.${next_minor}.${next_patch}"
+          done
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$next_tag" "${GITHUB_SHA}" -m "Release ${next_tag}"
+          git push origin "$next_tag"
+
+          echo "release_tag=${next_tag}" >> "$GITHUB_OUTPUT"
+          echo "release_version=${next_tag#v}" >> "$GITHUB_OUTPUT"
+
   build-and-release:
     name: Build and Release
-    needs: test
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: create-release-tag
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
     runs-on: ${{ matrix.os }}
@@ -219,14 +280,15 @@ jobs:
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ needs.create-release-tag.outputs.release_tag }}
           files: ${{ matrix.asset_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-and-release-macos:
     name: Build and Release (macOS aarch64)
-    needs: test
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: create-release-tag
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
     runs-on: macos-latest
@@ -291,6 +353,7 @@ jobs:
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ needs.create-release-tag.outputs.release_tag }}
           files: circle-to-search-pc-macos-aarch64.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -298,19 +361,20 @@ jobs:
       - name: Upload SHA256
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ needs.create-release-tag.outputs.release_tag }}
           files: circle-to-search-pc-macos-aarch64.dmg.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   update-homebrew-tap:
     name: Update Homebrew Tap
-    needs: build-and-release-macos
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-and-release-macos, create-release-tag]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Resolve macOS release SHA256
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${{ needs.create-release-tag.outputs.release_version }}"
           ASSET="circle-to-search-pc-macos-aarch64.dmg"
           SHA256=$(gh release download "v${VERSION}" \
             --repo nkasozi/circle-to-search-pc \
