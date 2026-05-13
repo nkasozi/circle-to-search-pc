@@ -33,6 +33,46 @@ pub mod macos {
     const SETTINGS_PANE_SECURITY: &str = "x-apple.systempreferences:com.apple.preference.security";
     const SYSTEM_OPEN_COMMAND: &str = "open";
 
+    struct DynamicLibraryHandle {
+        raw_handle: *mut libc::c_void,
+    }
+
+    impl DynamicLibraryHandle {
+        fn open(path: &'static str) -> Option<Self> {
+            let framework_path = build_c_string(path)?;
+            let raw_handle = unsafe { libc::dlopen(framework_path.as_ptr(), libc::RTLD_LAZY) };
+
+            if raw_handle.is_null() {
+                return None;
+            }
+
+            Some(Self { raw_handle })
+        }
+
+        fn find_symbol(&self, symbol_name: &'static str) -> Option<*mut libc::c_void> {
+            let function_name = build_c_string(symbol_name)?;
+            let symbol_pointer = unsafe { libc::dlsym(self.raw_handle, function_name.as_ptr()) };
+
+            if symbol_pointer.is_null() {
+                return None;
+            }
+
+            Some(symbol_pointer)
+        }
+    }
+
+    impl Drop for DynamicLibraryHandle {
+        fn drop(&mut self) {
+            if self.raw_handle.is_null() {
+                return;
+            }
+
+            unsafe {
+                libc::dlclose(self.raw_handle);
+            }
+        }
+    }
+
     pub fn check_screen_recording_permission() -> bool {
         log::info!(
             "{} Checking screen recording permission",
@@ -123,182 +163,130 @@ pub mod macos {
     }
 
     fn check_screen_recording_permission_internal() -> bool {
-        unsafe {
-            let Some(framework_path) = build_c_string(CORE_GRAPHICS_FRAMEWORK_PATH) else {
-                return false;
-            };
+        let Some(core_graphics_library) = DynamicLibraryHandle::open(CORE_GRAPHICS_FRAMEWORK_PATH)
+        else {
+            log::warn!(
+                "{} Could not load CoreGraphics framework",
+                LOG_TAG_PERMISSIONS
+            );
+            return false;
+        };
 
-            let lib = libc::dlopen(framework_path.as_ptr(), libc::RTLD_LAZY);
+        type CGPreflightScreenCaptureAccessFn = unsafe extern "C" fn() -> bool;
 
-            if lib.is_null() {
-                log::warn!(
-                    "{} Could not load CoreGraphics framework",
-                    LOG_TAG_PERMISSIONS
-                );
-                return false;
-            }
+        let Some(symbol_pointer) = core_graphics_library.find_symbol(CG_PREFLIGHT_ACCESS_SYMBOL)
+        else {
+            log::warn!(
+                "{} Could not find CGPreflightScreenCaptureAccess, falling back to stream check",
+                LOG_TAG_PERMISSIONS
+            );
+            return check_screen_recording_via_stream(&core_graphics_library);
+        };
 
-            type CGPreflightScreenCaptureAccessFn = unsafe extern "C" fn() -> bool;
-
-            let Some(func_name) = build_c_string(CG_PREFLIGHT_ACCESS_SYMBOL) else {
-                libc::dlclose(lib);
-                return false;
-            };
-            let func_ptr = libc::dlsym(lib, func_name.as_ptr());
-
-            if func_ptr.is_null() {
-                libc::dlclose(lib);
-                log::warn!(
-                    "{} Could not find CGPreflightScreenCaptureAccess, falling back to stream check",
-                    LOG_TAG_PERMISSIONS
-                );
-                return check_screen_recording_via_stream(lib);
-            }
-
-            let preflight_fn: CGPreflightScreenCaptureAccessFn = std::mem::transmute(func_ptr);
-            let result = preflight_fn();
-
-            libc::dlclose(lib);
-
-            result
-        }
+        let preflight_function: CGPreflightScreenCaptureAccessFn =
+            unsafe { std::mem::transmute(symbol_pointer) };
+        unsafe { preflight_function() }
     }
 
-    fn check_screen_recording_via_stream(lib: *mut libc::c_void) -> bool {
+    fn check_screen_recording_via_stream(core_graphics_library: &DynamicLibraryHandle) -> bool {
         use std::ptr;
 
-        unsafe {
-            type CreateStreamFn = unsafe extern "C" fn(
-                u32,
-                usize,
-                usize,
-                u32,
-                *const std::ffi::c_void,
-                *const std::ffi::c_void,
-                *const std::ffi::c_void,
-            ) -> *const std::ffi::c_void;
+        type CreateStreamFn = unsafe extern "C" fn(
+            u32,
+            usize,
+            usize,
+            u32,
+            *const std::ffi::c_void,
+            *const std::ffi::c_void,
+            *const std::ffi::c_void,
+        ) -> *const std::ffi::c_void;
 
-            let Some(func_name) = build_c_string(CG_DISPLAY_STREAM_SYMBOL) else {
-                return false;
-            };
-            let func_ptr = libc::dlsym(lib, func_name.as_ptr());
+        let Some(symbol_pointer) = core_graphics_library.find_symbol(CG_DISPLAY_STREAM_SYMBOL)
+        else {
+            log::warn!(
+                "{} Could not find CGDisplayStreamCreateWithDispatchQueue",
+                LOG_TAG_PERMISSIONS
+            );
+            return false;
+        };
 
-            if func_ptr.is_null() {
-                log::warn!(
-                    "{} Could not find CGDisplayStreamCreateWithDispatchQueue",
-                    LOG_TAG_PERMISSIONS
-                );
-                return false;
-            }
+        let create_stream: CreateStreamFn = unsafe { std::mem::transmute(symbol_pointer) };
+        let stream = unsafe { create_stream(0, 1, 1, 0, ptr::null(), ptr::null(), ptr::null()) };
 
-            let func: CreateStreamFn = std::mem::transmute(func_ptr);
-            let stream = func(0, 1, 1, 0, ptr::null(), ptr::null(), ptr::null());
-
-            !stream.is_null()
-        }
+        !stream.is_null()
     }
 
     fn check_input_monitoring_permission_internal() -> bool {
-        unsafe {
-            let Some(framework_path) = build_c_string(IOKIT_FRAMEWORK_PATH) else {
-                return false;
-            };
+        let Some(iokit_library) = DynamicLibraryHandle::open(IOKIT_FRAMEWORK_PATH) else {
+            log::warn!("{} Could not load IOKit framework", LOG_TAG_PERMISSIONS);
+            return check_accessibility_permission_internal(false);
+        };
 
-            let lib = libc::dlopen(framework_path.as_ptr(), libc::RTLD_LAZY);
+        type IOHIDCheckAccessFn = unsafe extern "C" fn(u32) -> u32;
 
-            if lib.is_null() {
-                log::warn!("{} Could not load IOKit framework", LOG_TAG_PERMISSIONS);
-                return check_accessibility_permission_internal(false);
-            }
-
-            type IOHIDCheckAccessFn = unsafe extern "C" fn(u32) -> u32;
-
-            let Some(func_name) = build_c_string(IOHID_CHECK_ACCESS_SYMBOL) else {
-                libc::dlclose(lib);
-                return false;
-            };
-            let func_ptr = libc::dlsym(lib, func_name.as_ptr());
-
-            if func_ptr.is_null() {
-                libc::dlclose(lib);
-                log::warn!(
-                    "{} Could not find IOHIDCheckAccess, falling back to accessibility check",
-                    LOG_TAG_PERMISSIONS
-                );
-                return check_accessibility_permission_internal(false);
-            }
-
-            let check_access_fn: IOHIDCheckAccessFn = std::mem::transmute(func_ptr);
-
-            let k_iohid_request_type_listen_event: u32 = 1;
-            let k_iohid_access_type_granted: u32 = 0;
-
-            let result = check_access_fn(k_iohid_request_type_listen_event);
-
-            log::debug!(
-                "{} IOHIDCheckAccess returned: {} (0=granted, 1=denied, 2=unknown)",
-                LOG_TAG_PERMISSIONS,
-                result
+        let Some(symbol_pointer) = iokit_library.find_symbol(IOHID_CHECK_ACCESS_SYMBOL) else {
+            log::warn!(
+                "{} Could not find IOHIDCheckAccess, falling back to accessibility check",
+                LOG_TAG_PERMISSIONS
             );
+            return check_accessibility_permission_internal(false);
+        };
 
-            libc::dlclose(lib);
+        let check_access_function: IOHIDCheckAccessFn =
+            unsafe { std::mem::transmute(symbol_pointer) };
 
-            result == k_iohid_access_type_granted
-        }
+        let k_iohid_request_type_listen_event: u32 = 1;
+        let k_iohid_access_type_granted: u32 = 0;
+
+        let result = unsafe { check_access_function(k_iohid_request_type_listen_event) };
+
+        log::debug!(
+            "{} IOHIDCheckAccess returned: {} (0=granted, 1=denied, 2=unknown)",
+            LOG_TAG_PERMISSIONS,
+            result
+        );
+
+        result == k_iohid_access_type_granted
     }
 
     fn check_accessibility_permission_internal(prompt: bool) -> bool {
         use std::ptr;
 
-        unsafe {
-            let Some(framework_path) = build_c_string(APPLICATION_SERVICES_FRAMEWORK_PATH) else {
-                return false;
-            };
+        let Some(application_services_library) =
+            DynamicLibraryHandle::open(APPLICATION_SERVICES_FRAMEWORK_PATH)
+        else {
+            log::warn!(
+                "{} Could not load ApplicationServices framework",
+                LOG_TAG_PERMISSIONS
+            );
+            return true;
+        };
 
-            let lib = libc::dlopen(framework_path.as_ptr(), libc::RTLD_LAZY);
+        type AXIsProcessTrustedWithOptionsFn = unsafe extern "C" fn(*const libc::c_void) -> bool;
 
-            if lib.is_null() {
-                log::warn!(
-                    "{} Could not load ApplicationServices framework",
-                    LOG_TAG_PERMISSIONS
-                );
-                return true;
-            }
+        let Some(symbol_pointer) =
+            application_services_library.find_symbol(AX_TRUSTED_OPTIONS_SYMBOL)
+        else {
+            log::warn!(
+                "{} Could not find AXIsProcessTrustedWithOptions",
+                LOG_TAG_PERMISSIONS
+            );
+            return true;
+        };
 
-            type AXIsProcessTrustedWithOptionsFn =
-                unsafe extern "C" fn(*const libc::c_void) -> bool;
+        let ax_is_process_trusted: AXIsProcessTrustedWithOptionsFn =
+            unsafe { std::mem::transmute(symbol_pointer) };
 
-            let Some(func_name) = build_c_string(AX_TRUSTED_OPTIONS_SYMBOL) else {
-                libc::dlclose(lib);
-                return false;
-            };
-            let func_ptr = libc::dlsym(lib, func_name.as_ptr());
-
-            if func_ptr.is_null() {
-                libc::dlclose(lib);
-                log::warn!(
-                    "{} Could not find AXIsProcessTrustedWithOptions",
-                    LOG_TAG_PERMISSIONS
-                );
-                return true;
-            }
-
-            let ax_is_process_trusted: AXIsProcessTrustedWithOptionsFn =
-                std::mem::transmute(func_ptr);
-
-            let result = if prompt {
-                let key = CFString::from_static_string(AX_TRUSTED_CHECK_OPTION_PROMPT);
-                let value = CFBoolean::true_value();
-                let options = CFDictionary::from_CFType_pairs(&[(key, value.as_CFType())]);
+        if prompt {
+            let key = CFString::from_static_string(AX_TRUSTED_CHECK_OPTION_PROMPT);
+            let value = CFBoolean::true_value();
+            let options = CFDictionary::from_CFType_pairs(&[(key, value.as_CFType())]);
+            return unsafe {
                 ax_is_process_trusted(options.as_concrete_TypeRef() as *const libc::c_void)
-            } else {
-                ax_is_process_trusted(ptr::null())
             };
-
-            libc::dlclose(lib);
-
-            result
         }
+
+        unsafe { ax_is_process_trusted(ptr::null()) }
     }
 
     fn open_system_preferences(permission_type: &str) -> bool {

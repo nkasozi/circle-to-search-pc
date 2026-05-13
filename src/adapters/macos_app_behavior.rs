@@ -32,27 +32,32 @@ pub mod macos {
         }
     }
 
+    fn get_ns_application() -> Option<*mut Object> {
+        let app = unsafe { NSApp() };
+        if app == nil as *mut Object {
+            return None;
+        }
+        Some(app)
+    }
+
     pub fn set_activation_policy(policy: ActivationPolicy) -> bool {
         log::info!("{} Setting activation policy to {:?}", LOG_TAG, policy);
 
-        unsafe {
-            let app = NSApp();
-            if app == nil as *mut Object {
-                log::error!("{} Failed to get NSApplication", LOG_TAG);
-                return false;
-            }
+        let Some(app) = get_ns_application() else {
+            log::error!("{} Failed to get NSApplication", LOG_TAG);
+            return false;
+        };
 
-            let ns_policy: NSApplicationActivationPolicy = policy.into();
-            let result = app.setActivationPolicy_(ns_policy);
+        let ns_policy: NSApplicationActivationPolicy = policy.into();
+        let result = unsafe { app.setActivationPolicy_(ns_policy) };
 
-            if result {
-                log::info!("{} Activation policy set successfully", LOG_TAG);
-            } else {
-                log::warn!("{} Failed to set activation policy", LOG_TAG);
-            }
-
-            result
+        if result {
+            log::info!("{} Activation policy set successfully", LOG_TAG);
+        } else {
+            log::warn!("{} Failed to set activation policy", LOG_TAG);
         }
+
+        result
     }
 
     pub fn hide_dock_icon() -> bool {
@@ -70,16 +75,15 @@ pub mod macos {
     pub fn activate_app_ignoring_other_apps() -> bool {
         log::info!("{} Activating app (bringing to front)", LOG_TAG);
 
-        unsafe {
-            let app = NSApp();
-            if app == nil as *mut Object {
-                log::error!("{} Failed to get NSApplication", LOG_TAG);
-                return false;
-            }
+        let Some(app) = get_ns_application() else {
+            log::error!("{} Failed to get NSApplication", LOG_TAG);
+            return false;
+        };
 
+        unsafe {
             app.activateIgnoringOtherApps_(true);
-            true
         }
+        true
     }
 }
 
