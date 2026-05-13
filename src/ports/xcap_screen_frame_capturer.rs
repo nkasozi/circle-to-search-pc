@@ -110,19 +110,22 @@ impl ScreenFrameCapturer for XcapScreenFrameCapturer {
 
                 let region = ScreenRegion::at_coordinates(capture_region_x, capture_region_y);
 
-                let monitor = match Self::find_monitor_at_region(&region) {
-                    Ok(found_monitor) => found_monitor,
-                    Err(monitor_error) => {
-                        log::error!(
-                            "{} monitor lookup failed during capture: {}",
-                            LOG_TAG,
-                            monitor_error,
-                        );
-                        break;
-                    }
+                let frame_result = {
+                    let monitor = match Self::find_monitor_at_region(&region) {
+                        Ok(found_monitor) => found_monitor,
+                        Err(monitor_error) => {
+                            log::error!(
+                                "{} monitor lookup failed during capture: {}",
+                                LOG_TAG,
+                                monitor_error,
+                            );
+                            break;
+                        }
+                    };
+                    Self::capture_single_frame(&monitor, &recording_start_time)
                 };
 
-                match Self::capture_single_frame(&monitor, &recording_start_time) {
+                match frame_result {
                     Ok(frame) => {
                         if frame_sender.send(frame).await.is_err() {
                             log::info!("{} frame receiver dropped, stopping capture", LOG_TAG);
