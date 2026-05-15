@@ -190,7 +190,6 @@ impl AppOrchestrator {
         match event {
             TrayEvent::ShowWindow => self.handle_open_main_window(),
             TrayEvent::SelectWindow => self.handle_open_window_picker(),
-            TrayEvent::RecordScreen => self.handle_open_recording(),
             TrayEvent::OpenSettings => self.handle_open_settings(),
             TrayEvent::Quit => {
                 self.log_info_event("quit_requested_from_tray", serde_json::json!({}));

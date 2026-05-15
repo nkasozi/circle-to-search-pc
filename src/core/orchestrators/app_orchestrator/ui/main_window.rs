@@ -81,60 +81,6 @@ impl AppOrchestrator {
                 snap: false,
             });
 
-        let record_btn = button(
-            row![
-                text(global_constants::MAIN_WINDOW_ICON_RECORD).size(24),
-                text(global_constants::MAIN_WINDOW_RECORD_BUTTON_LABEL).size(18)
-            ]
-            .spacing(12)
-            .align_y(Alignment::Center),
-        )
-        .padding([16, 48])
-        .style(|theme, status| app_theme::secondary_button_style(theme, status))
-        .on_press(OrchestratorMessage::OpenRecording);
-
-        let record_hotkey_text = container(
-            text(
-                global_constants::MAIN_WINDOW_RECORD_HOTKEY_HINT_TEMPLATE.replace(
-                    global_constants::MAIN_WINDOW_HOTKEY_TEMPLATE_TOKEN,
-                    &self.settings.recording_hotkey,
-                ),
-            )
-            .size(13)
-            .center()
-            .style(|_theme: &iced::Theme| iced::widget::text::Style {
-                color: Some(Color::from_rgba(0.5, 0.5, 0.5, 1.0)),
-            }),
-        )
-        .width(Length::Fill)
-        .center_x(Length::Fill);
-
-        let record_content = column![record_btn, record_hotkey_text]
-            .spacing(8)
-            .align_x(Alignment::Center)
-            .width(Length::Fill);
-
-        let record_panel = container(record_content)
-            .padding([28, 32])
-            .width(Length::Fill)
-            .center_x(Length::Fill)
-            .center_y(Length::Shrink)
-            .style(|_theme| iced::widget::container::Style {
-                background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.3))),
-                border: iced::Border {
-                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.3),
-                    width: 1.0,
-                    radius: 12.0.into(),
-                },
-                shadow: iced::Shadow {
-                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.2),
-                    offset: iced::Vector::new(0.0, 2.0),
-                    blur_radius: 8.0,
-                },
-                text_color: None,
-                snap: false,
-            });
-
         let status_indicator = self.render_status_indicator();
 
         let system_tray_row = row![
@@ -185,8 +131,6 @@ impl AppOrchestrator {
             header_section,
             Space::new().height(Length::Fixed(32.0)),
             action_panel,
-            Space::new().height(Length::Fixed(16.0)),
-            record_panel,
             Space::new().height(Length::Fixed(16.0)),
             status_indicator,
             Space::new().height(Length::Fixed(24.0)),
