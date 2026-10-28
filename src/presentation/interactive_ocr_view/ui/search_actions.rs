@@ -1,214 +1,135 @@
+use super::styles::ActionVisualState;
 use super::*;
+use crate::presentation::design::components::{shortcut_keycaps, with_tooltip, KeycapSurface};
+use crate::presentation::design::tokens::{radius, HUD_TOKENS};
+use crate::presentation::design::{
+    button_style, font_size, icon, icon_size, spacing, surfaces, ButtonTone, Icon, IconTint,
+};
 
-const KEYBOARD_SHORTCUT_COPY_TEXT_MACOS: &str = "\u{2318}C";
-const KEYBOARD_SHORTCUT_COPY_TEXT_OTHER: &str = "Ctrl+C";
-const KEYBOARD_SHORTCUT_SELECT_ALL_MACOS: &str = "\u{2318}A";
-const KEYBOARD_SHORTCUT_SELECT_ALL_OTHER: &str = "Ctrl+A";
-const SEARCH_INPUT_PLACEHOLDER: &str = "Optional: Add text to refine your search";
-const SEARCH_BUTTON_TOOLTIP: &str = "Search Image on Google";
-const HELP_HINT_PREFIX: &str = "\u{1f4a1} Click and drag on text to select \u{2022} ";
-const HELP_HINT_SUFFIX: &str = " to select all \u{2022} Esc to deselect";
+const COPY_TEXT_TOOLTIP_MACOS: &str = "Copy selected text (⌘C)";
+const COPY_TEXT_TOOLTIP_OTHER: &str = "Copy selected text (Ctrl+C)";
+const SEARCH_INPUT_PLACEHOLDER: &str = "Add words to refine…";
+const SEARCH_BUTTON_LABEL: &str = "Search";
+const SEARCH_BUTTON_TOOLTIP: &str = "Search this image with Google Lens";
+const HELP_HINT_TEXT: &str = "Drag across text to select it";
+const SELECT_ALL_SHORTCUT_MACOS: &str = "Cmd+A";
+const SELECT_ALL_SHORTCUT_OTHER: &str = "Ctrl+A";
+const SELECT_ALL_SUFFIX: &str = "selects everything";
+const SEPARATOR_DOT: &str = "·";
+const SEARCH_INPUT_WIDTH: f32 = 190.0;
+
+fn hud_field_style(_theme: &iced::Theme, status: text_input::Status) -> text_input::Style {
+    let border_color = match status {
+        text_input::Status::Focused { .. } => HUD_TOKENS.accent,
+        _ => HUD_TOKENS.border_strong,
+    };
+    text_input::Style {
+        background: iced::Background::Color(HUD_TOKENS.surface_raised),
+        border: Border {
+            color: border_color,
+            width: 1.0,
+            radius: radius::PILL.into(),
+        },
+        icon: HUD_TOKENS.text_muted,
+        placeholder: HUD_TOKENS.text_muted,
+        value: HUD_TOKENS.text_primary,
+        selection: Color {
+            a: 0.4,
+            ..HUD_TOKENS.accent
+        },
+    }
+}
 
 impl InteractiveOcrView {
     pub(super) fn push_copy_text_button<'a>(
         &self,
-        mut action_row: iced::widget::Row<'a, InteractiveOcrMessage>,
+        action_row: iced::widget::Row<'a, InteractiveOcrMessage>,
     ) -> iced::widget::Row<'a, InteractiveOcrMessage> {
         if self.selected_chars.is_empty() {
             return action_row;
         }
-
-        let copy_shortcut = if cfg!(target_os = "macos") {
-            KEYBOARD_SHORTCUT_COPY_TEXT_MACOS
-        } else {
-            KEYBOARD_SHORTCUT_COPY_TEXT_OTHER
+        let label = match cfg!(target_os = "macos") {
+            true => COPY_TEXT_TOOLTIP_MACOS,
+            false => COPY_TEXT_TOOLTIP_OTHER,
         };
-        let copy_text_btn = button(text("📋").size(20))
-            .padding([10, 14])
-            .style(|_theme: &iced::Theme, status| {
-                Self::solid_button_style(
-                    status,
-                    Color::from_rgba(0.4, 0.2, 0.6, 0.9),
-                    Color::from_rgba(0.5, 0.3, 0.8, 0.95),
-                    Color::from_rgba(0.4, 0.2, 0.7, 0.95),
-                    Color::from_rgba(0.6, 0.4, 0.9, 0.6),
-                )
-            })
-            .on_press(InteractiveOcrMessage::CopySelected);
-        action_row = action_row.push(
-            tooltip(
-                copy_text_btn,
-                text(format!("Copy Selected Text ({})", copy_shortcut)),
-                tooltip::Position::Top,
-            )
-            .style(Self::tooltip_style),
-        );
-        action_row
+        let visual_state = match self.copy_state {
+            CopyState::Success => ActionVisualState::Succeeded,
+            CopyState::Failed => ActionVisualState::Failed,
+            CopyState::Idle => ActionVisualState::Idle,
+        };
+        action_row.push(self.action_button(
+            Icon::Copy,
+            visual_state,
+            InteractiveOcrMessage::CopySelected,
+            label.to_string(),
+        ))
     }
 
     pub(super) fn push_search_controls<'a>(
-        &self,
-        mut action_row: iced::widget::Row<'a, InteractiveOcrMessage>,
+        &'a self,
+        action_row: iced::widget::Row<'a, InteractiveOcrMessage>,
     ) -> iced::widget::Row<'a, InteractiveOcrMessage> {
-        let (search_text, is_searching) = match &self.search_state {
-            SearchState::Idle => ("🔍", false),
-            SearchState::UploadingImage => (Self::spinner_frame_text(self.spinner_frame), true),
-            SearchState::Completed => ("✅", true),
-            SearchState::Failed(_) => ("❌", true),
-        };
-
-        let search_input = text_input("", &self.search_query)
+        let is_searching = !matches!(self.search_state, SearchState::Idle);
+        let search_input = text_input(SEARCH_INPUT_PLACEHOLDER, &self.search_query)
             .on_input(InteractiveOcrMessage::SearchQueryChanged)
             .on_submit(InteractiveOcrMessage::SearchSelected)
-            .padding([8, 12])
-            .width(Length::Fixed(160.0))
-            .align_x(Alignment::Center)
-            .style(|_theme: &iced::Theme, _status| text_input::Style {
-                background: iced::Background::Color(Color::from_rgba(0.1, 0.1, 0.1, 0.9)),
-                border: Border {
-                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.6),
-                    width: 1.0,
-                    radius: 6.0.into(),
-                },
-                icon: Color::from_rgba(0.6, 0.6, 0.6, 0.8),
-                placeholder: Color::TRANSPARENT,
-                value: Color::WHITE,
-                selection: Color::from_rgba(0.3, 0.5, 0.8, 0.5),
-            });
-        action_row = action_row.push(
-            tooltip(
-                self.build_search_placeholder_overlay(search_input),
-                SEARCH_INPUT_PLACEHOLDER,
-                tooltip::Position::Top,
-            )
-            .style(Self::tooltip_style),
-        );
-
-        let mut search_btn = button(text(search_text).size(20)).padding([10, 14]).style(
-            |_theme: &iced::Theme, status| {
-                Self::solid_button_style(
-                    status,
-                    Color::from_rgba(0.15, 0.15, 0.15, 0.85),
-                    Color::from_rgba(0.2, 0.5, 0.9, 0.95),
-                    Color::from_rgba(0.1, 0.4, 0.8, 0.95),
-                    Color::from_rgba(0.3, 0.6, 1.0, 0.5),
-                )
-            },
-        );
-        if !is_searching {
-            search_btn = search_btn.on_press(InteractiveOcrMessage::SearchSelected);
-        }
-        action_row = action_row.push(
-            tooltip(search_btn, SEARCH_BUTTON_TOOLTIP, tooltip::Position::Top)
-                .style(Self::tooltip_style),
-        );
-        action_row
-    }
-
-    pub(super) fn build_search_placeholder_overlay<'a>(
-        &self,
-        search_input: iced::widget::TextInput<'a, InteractiveOcrMessage>,
-    ) -> Element<'a, InteractiveOcrMessage> {
-        let show_placeholder = self.search_query.is_empty();
-        let placeholder_overlay = container(
-            row![
-                text("G").size(14).color(Color::from_rgba(
-                    0.259,
-                    0.522,
-                    0.957,
-                    if show_placeholder { 1.0 } else { 0.0 }
-                )),
-                text("o").size(14).color(Color::from_rgba(
-                    0.918,
-                    0.263,
-                    0.208,
-                    if show_placeholder { 1.0 } else { 0.0 }
-                )),
-                text("o").size(14).color(Color::from_rgba(
-                    0.984,
-                    0.737,
-                    0.02,
-                    if show_placeholder { 1.0 } else { 0.0 }
-                )),
-                text("g").size(14).color(Color::from_rgba(
-                    0.259,
-                    0.522,
-                    0.957,
-                    if show_placeholder { 1.0 } else { 0.0 }
-                )),
-                text("l").size(14).color(Color::from_rgba(
-                    0.204,
-                    0.659,
-                    0.325,
-                    if show_placeholder { 1.0 } else { 0.0 }
-                )),
-                text("e").size(14).color(Color::from_rgba(
-                    0.918,
-                    0.263,
-                    0.208,
-                    if show_placeholder { 1.0 } else { 0.0 }
-                )),
+            .padding([spacing::SMALL, spacing::MEDIUM + 2.0])
+            .size(font_size::BODY)
+            .width(Length::Fixed(SEARCH_INPUT_WIDTH))
+            .style(hud_field_style);
+        let button_content: Element<'a, InteractiveOcrMessage> = match &self.search_state {
+            SearchState::UploadingImage => text(Self::spinner_frame_text(self.spinner_frame))
+                .size(font_size::HEADING)
+                .into(),
+            _ => row![
+                icon(Icon::Search, icon_size::SMALL + 2.0, iced::Color::WHITE),
+                text(SEARCH_BUTTON_LABEL).size(font_size::BODY)
             ]
-            .spacing(0),
-        )
-        .width(Length::Fixed(160.0))
-        .height(Length::Shrink)
-        .align_x(Alignment::Center)
-        .align_y(Alignment::Center)
-        .padding([8, 12]);
-        stack![search_input, placeholder_overlay].into()
+            .spacing(spacing::SMALL)
+            .align_y(Alignment::Center)
+            .into(),
+        };
+        let search_button = button(button_content)
+            .padding([spacing::SMALL + 1.0, spacing::LARGE])
+            .style(button_style(ButtonTone::Primary))
+            .on_press_maybe((!is_searching).then_some(InteractiveOcrMessage::SearchSelected));
+        action_row.push(search_input).push(with_tooltip(
+            search_button,
+            SEARCH_BUTTON_TOOLTIP,
+            tooltip::Position::Top,
+        ))
     }
 
     pub(super) fn build_help_hint(&self) -> Element<'_, InteractiveOcrMessage> {
-        let select_all_shortcut = if cfg!(target_os = "macos") {
-            KEYBOARD_SHORTCUT_SELECT_ALL_MACOS
-        } else {
-            KEYBOARD_SHORTCUT_SELECT_ALL_OTHER
+        let select_all_shortcut = match cfg!(target_os = "macos") {
+            true => SELECT_ALL_SHORTCUT_MACOS,
+            false => SELECT_ALL_SHORTCUT_OTHER,
         };
         let hint_content = row![
-            text(format!(
-                "{}{}{}",
-                HELP_HINT_PREFIX, select_all_shortcut, HELP_HINT_SUFFIX
+            text(HELP_HINT_TEXT)
+                .size(font_size::CAPTION)
+                .style(surfaces::hud_text),
+            text(SEPARATOR_DOT)
+                .size(font_size::CAPTION)
+                .style(surfaces::hud_secondary_text),
+            shortcut_keycaps(select_all_shortcut, KeycapSurface::Hud),
+            text(SELECT_ALL_SUFFIX)
+                .size(font_size::CAPTION)
+                .style(surfaces::hud_secondary_text),
+            button(icon(
+                Icon::Close,
+                icon_size::SMALL,
+                IconTint::Fixed(HUD_TOKENS.text_secondary)
             ))
-            .size(13)
-            .style(|_theme: &iced::Theme| iced::widget::text::Style {
-                color: Some(Color::from_rgba(0.9, 0.9, 0.9, 0.95)),
-            }),
-            button(text("✕").size(12))
-                .padding([4, 8])
-                .style(|_theme: &iced::Theme, status| {
-                    Self::solid_button_style(
-                        status,
-                        Color::TRANSPARENT,
-                        Color::from_rgba(0.4, 0.4, 0.4, 0.8),
-                        Color::from_rgba(0.3, 0.3, 0.3, 0.8),
-                        Color::TRANSPARENT,
-                    )
-                })
-                .on_press(InteractiveOcrMessage::DismissHelpHint)
+            .padding(spacing::EXTRA_SMALL)
+            .style(button_style(ButtonTone::HudIcon))
+            .on_press(InteractiveOcrMessage::DismissHelpHint),
         ]
-        .spacing(12)
+        .spacing(spacing::SMALL)
         .align_y(Alignment::Center);
-
         container(hint_content)
-            .padding([10, 16])
-            .style(|_theme| iced::widget::container::Style {
-                background: Some(iced::Background::Color(Color::from_rgba(
-                    0.1, 0.1, 0.15, 0.92,
-                ))),
-                border: Border {
-                    color: Color::from_rgba(0.3, 0.5, 0.8, 0.5),
-                    width: 1.0,
-                    radius: 8.0.into(),
-                },
-                shadow: Shadow {
-                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.4),
-                    offset: Vector::new(0.0, 2.0),
-                    blur_radius: 8.0,
-                },
-                text_color: None,
-                snap: false,
-            })
+            .padding([spacing::EXTRA_SMALL + 2.0, spacing::MEDIUM])
+            .style(surfaces::hud_pill)
             .into()
     }
 }

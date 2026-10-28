@@ -1,190 +1,171 @@
 use super::*;
-use iced::widget::{button, canvas, container, image, row, stack, text};
-use iced::{Alignment, Background, Border, Color, Element, Length, Shadow, Vector};
+use iced::widget::{button, canvas, container, image, row, stack, text, tooltip, Space};
+use iced::{Alignment, ContentFit, Element, Length, Padding};
+
+use crate::presentation::design::components::{
+    hud_icon_tint, shortcut_keycaps, with_tooltip, KeycapSurface,
+};
+use crate::presentation::design::tokens::HUD_TOKENS;
+use crate::presentation::design::{
+    button_style, font_size, icon, icon_size, spacing, surfaces, ButtonTone, Icon, IconTint,
+};
+
+const HINT_RECTANGLE: &str = "Drag over anything to search it";
+const HINT_FREEFORM: &str = "Circle anything to search it";
+const HINT_CANCEL_SUFFIX: &str = "to cancel";
+const ESCAPE_KEY_LABEL: &str = "Esc";
+const SEPARATOR_DOT: &str = "·";
+const AREA_TOOLTIP: &str = "Drag a box";
+const FREEFORM_TOOLTIP: &str = "Draw a circle";
+const WINDOW_TOOLTIP: &str = "Pick a window";
+const RECORD_LABEL: &str = "Record";
+const RECORD_TOOLTIP: &str = "Record your screen instead";
+const PANEL_BOTTOM_MARGIN: f32 = 48.0;
+const HINT_TOP_MARGIN: f32 = 64.0;
+const DIVIDER_HEIGHT: f32 = 28.0;
 
 impl CaptureView {
     pub fn render_ui(&self) -> Element<'_, CaptureViewMessage> {
-        let screenshot_viewer = image::viewer(self.capture_buffer.image_handle.clone())
+        let screenshot = image(self.capture_buffer.image_handle.clone())
             .width(Length::Fill)
-            .height(Length::Fill);
+            .height(Length::Fill)
+            .content_fit(ContentFit::Contain);
         let overlay_canvas = canvas(self).width(Length::Fill).height(Length::Fill);
         let mut layers: Vec<Element<'_, CaptureViewMessage>> =
-            vec![screenshot_viewer.into(), overlay_canvas.into()];
-
+            vec![screenshot.into(), overlay_canvas.into()];
         if !self.is_selecting {
-            layers.push(self.build_status_banner().into());
-            layers.push(self.build_toolbar().into());
+            layers.push(self.render_hint());
+            layers.push(self.render_toolbar());
         }
-
         container(stack(layers))
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
     }
 
-    fn build_status_banner(&self) -> Element<'_, CaptureViewMessage> {
-        let status_message = if self.calculate_selection_rectangle().is_some() {
-            "Press Enter to confirm selection or draw a new region"
-        } else {
-            match self.draw_mode {
-                DrawMode::Rectangle => "Click and drag to select a region",
-                DrawMode::Freeform => "Click and drag to draw a freeform shape",
-            }
+    fn render_hint(&self) -> Element<'_, CaptureViewMessage> {
+        let hint_text = match self.draw_mode {
+            DrawMode::Rectangle => HINT_RECTANGLE,
+            DrawMode::Freeform => HINT_FREEFORM,
         };
-
+        let hint_row = row![
+            text(hint_text)
+                .size(font_size::BODY)
+                .style(surfaces::hud_text),
+            text(SEPARATOR_DOT)
+                .size(font_size::BODY)
+                .style(surfaces::hud_secondary_text),
+            shortcut_keycaps(ESCAPE_KEY_LABEL, KeycapSurface::Hud),
+            text(HINT_CANCEL_SUFFIX)
+                .size(font_size::BODY)
+                .style(surfaces::hud_secondary_text),
+        ]
+        .spacing(spacing::SMALL)
+        .align_y(Alignment::Center);
         container(
-            container(text(status_message).size(16).style(|_theme| text::Style {
-                color: Some(Color::WHITE),
-            }))
-            .padding([12, 24])
-            .style(|_theme| container::Style {
-                background: Some(Background::Color(Color::from_rgba(0.1, 0.1, 0.1, 0.85))),
-                border: Border {
-                    color: Color::from_rgba(0.3, 0.6, 1.0, 0.8),
-                    width: 1.0,
-                    radius: 8.0.into(),
-                },
-                shadow: Shadow {
-                    color: Color::from_rgba(0.0, 0.0, 0.0, 0.6),
-                    offset: Vector::new(0.0, 4.0),
-                    blur_radius: 12.0,
-                },
-                text_color: None,
-                snap: false,
-            }),
+            container(hint_row)
+                .padding([spacing::SMALL + 2.0, spacing::LARGE])
+                .style(surfaces::hud_pill),
         )
         .width(Length::Fill)
-        .padding(iced::Padding {
-            top: 80.0,
-            right: 20.0,
-            bottom: 0.0,
-            left: 0.0,
+        .padding(Padding {
+            top: HINT_TOP_MARGIN,
+            ..Padding::ZERO
         })
-        .align_x(Alignment::End)
+        .align_x(Alignment::Center)
         .into()
     }
 
-    fn build_toolbar(&self) -> Element<'_, CaptureViewMessage> {
-        let rect_btn = button(text("⬜ Rectangle"))
-            .padding([8, 16])
-            .style(move |theme: &iced::Theme, status| {
-                self.toolbar_button_style(theme, status, self.draw_mode == DrawMode::Rectangle)
-            })
-            .on_press(CaptureViewMessage::SetDrawMode(DrawMode::Rectangle));
-        let freeform_btn = button(text("✏️ Freeform"))
-            .padding([8, 16])
-            .style(move |theme: &iced::Theme, status| {
-                self.toolbar_button_style(theme, status, self.draw_mode == DrawMode::Freeform)
-            })
-            .on_press(CaptureViewMessage::SetDrawMode(DrawMode::Freeform));
-        let window_btn = button(text("🪟 Window"))
-            .padding([8, 16])
-            .style(move |theme: &iced::Theme, status| {
-                self.toolbar_button_style(theme, status, false)
-            })
-            .on_press(CaptureViewMessage::SelectWindow);
-
-        let toolbar = container(
-            row![rect_btn, freeform_btn, window_btn]
-                .spacing(8)
-                .padding(8),
+    fn render_toolbar(&self) -> Element<'_, CaptureViewMessage> {
+        let toolbar = row![
+            self.render_mode_button(
+                Icon::Region,
+                AREA_TOOLTIP,
+                CaptureViewMessage::SetDrawMode(DrawMode::Rectangle),
+                self.draw_mode == DrawMode::Rectangle
+            ),
+            self.render_mode_button(
+                Icon::Lasso,
+                FREEFORM_TOOLTIP,
+                CaptureViewMessage::SetDrawMode(DrawMode::Freeform),
+                self.draw_mode == DrawMode::Freeform
+            ),
+            self.render_mode_button(
+                Icon::AppWindow,
+                WINDOW_TOOLTIP,
+                CaptureViewMessage::SelectWindow,
+                false
+            ),
+            render_divider(),
+            render_record_button(),
+        ]
+        .spacing(spacing::SMALL)
+        .align_y(Alignment::Center);
+        container(
+            container(toolbar)
+                .padding(spacing::SMALL + 2.0)
+                .style(surfaces::hud_panel),
         )
-        .style(|_theme| container::Style {
-            background: Some(Background::Color(Color::from_rgba(0.2, 0.2, 0.2, 0.85))),
-            border: Border {
-                color: Color::from_rgba(0.4, 0.4, 0.4, 0.9),
-                width: 1.0,
-                radius: 8.0.into(),
-            },
-            shadow: Shadow {
-                color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
-                offset: Vector::new(0.0, 4.0),
-                blur_radius: 12.0,
-            },
-            text_color: None,
-            snap: false,
-        });
-
-        container(toolbar)
-            .width(Length::Fill)
-            .padding(iced::Padding {
-                top: 80.0,
-                right: 0.0,
-                bottom: 0.0,
-                left: 0.0,
-            })
-            .align_x(Alignment::Center)
-            .into()
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .padding(Padding {
+            bottom: PANEL_BOTTOM_MARGIN,
+            ..Padding::ZERO
+        })
+        .align_x(Alignment::Center)
+        .align_y(Alignment::End)
+        .into()
     }
 
-    fn toolbar_button_style(
+    fn render_mode_button(
         &self,
-        _theme: &iced::Theme,
-        status: button::Status,
+        mode_icon: Icon,
+        label: &'static str,
+        message: CaptureViewMessage,
         is_active: bool,
-    ) -> button::Style {
-        let base_color = if is_active {
-            Color::from_rgb(0.3, 0.6, 1.0)
-        } else {
-            Color::from_rgba(0.4, 0.4, 0.4, 0.8)
+    ) -> Element<'static, CaptureViewMessage> {
+        let (tone, tint) = match is_active {
+            true => (
+                ButtonTone::HudIconActive,
+                IconTint::Fixed(HUD_TOKENS.accent_hover),
+            ),
+            false => (ButtonTone::HudIcon, hud_icon_tint()),
         };
-        match status {
-            button::Status::Active => button::Style {
-                background: Some(Background::Color(base_color)),
-                text_color: Color::WHITE,
-                border: Border {
-                    color: if is_active {
-                        Color::from_rgb(0.4, 0.7, 1.0)
-                    } else {
-                        Color::from_rgba(0.5, 0.5, 0.5, 0.9)
-                    },
-                    width: 1.0,
-                    radius: 6.0.into(),
-                },
-                shadow: Shadow::default(),
-                snap: false,
-            },
-            button::Status::Hovered => button::Style {
-                background: Some(Background::Color(if is_active {
-                    Color::from_rgb(0.4, 0.7, 1.0)
-                } else {
-                    Color::from_rgba(0.5, 0.5, 0.5, 0.9)
-                })),
-                text_color: Color::WHITE,
-                border: Border {
-                    color: Color::from_rgb(0.5, 0.8, 1.0),
-                    width: 1.0,
-                    radius: 6.0.into(),
-                },
-                shadow: Shadow::default(),
-                snap: false,
-            },
-            button::Status::Pressed => button::Style {
-                background: Some(Background::Color(if is_active {
-                    Color::from_rgb(0.2, 0.5, 0.9)
-                } else {
-                    Color::from_rgba(0.3, 0.3, 0.3, 0.9)
-                })),
-                text_color: Color::WHITE,
-                border: Border {
-                    color: Color::from_rgb(0.3, 0.6, 0.9),
-                    width: 1.0,
-                    radius: 6.0.into(),
-                },
-                shadow: Shadow::default(),
-                snap: true,
-            },
-            button::Status::Disabled => button::Style {
-                background: Some(Background::Color(Color::from_rgba(0.3, 0.3, 0.3, 0.5))),
-                text_color: Color::from_rgba(0.6, 0.6, 0.6, 1.0),
-                border: Border {
-                    color: Color::from_rgba(0.4, 0.4, 0.4, 0.5),
-                    width: 1.0,
-                    radius: 6.0.into(),
-                },
-                shadow: Shadow::default(),
-                snap: false,
-            },
-        }
+        with_tooltip(
+            button(icon(mode_icon, icon_size::MEDIUM, tint))
+                .padding(spacing::SMALL + 1.0)
+                .style(button_style(tone))
+                .on_press(message),
+            label,
+            tooltip::Position::Top,
+        )
     }
+}
+
+fn render_record_button() -> Element<'static, CaptureViewMessage> {
+    let content = row![
+        icon(Icon::Record, icon_size::SMALL + 2.0, iced::Color::WHITE),
+        text(RECORD_LABEL).size(font_size::BODY)
+    ]
+    .spacing(spacing::SMALL)
+    .align_y(Alignment::Center);
+    with_tooltip(
+        button(content)
+            .padding([spacing::SMALL + 1.0, spacing::LARGE])
+            .style(button_style(ButtonTone::HudRecord))
+            .on_press(CaptureViewMessage::SwitchToRecording),
+        RECORD_TOOLTIP,
+        tooltip::Position::Top,
+    )
+}
+
+fn render_divider() -> Element<'static, CaptureViewMessage> {
+    container(Space::new())
+        .width(Length::Fixed(1.0))
+        .height(Length::Fixed(DIVIDER_HEIGHT))
+        .style(|_theme| iced::widget::container::Style {
+            background: Some(iced::Background::Color(HUD_TOKENS.border_strong)),
+            ..Default::default()
+        })
+        .into()
 }

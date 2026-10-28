@@ -1,0 +1,16 @@
+pub(super) const TITLE: &str = "Pick what to capture";
+pub(super) const SUBTITLE: &str = "Choose a window, or grab the whole screen";
+pub(super) const FULL_SCREEN_TITLE: &str = "Full screen";
+pub(super) const FULL_SCREEN_DESCRIPTION: &str = "Capture everything on this display";
+pub(super) const WINDOWS_HEADING: &str = "Windows";
+pub(super) const FILTER_PLACEHOLDER: &str = "Filter by app or title…";
+pub(super) const LOADING_LABEL: &str = "Finding windows…";
+pub(super) const NO_WINDOWS_LABEL: &str = "No windows found";
+pub(super) const NO_MATCHES_LABEL: &str = "No windows match your filter";
+pub(super) const MINIMIZED_LABEL: &str = "Minimized";
+pub(super) const REFRESH_LABEL: &str = "Refresh";
+pub(super) const CANCEL_LABEL: &str = "Cancel";
+pub(super) const CAPTURE_LABEL: &str = "Capture window";
+pub(super) const SPINNER_FRAMES: [&str; 8] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"];
+pub(super) const THUMBNAIL_WIDTH: f32 = 88.0;
+pub(super) const THUMBNAIL_HEIGHT: f32 = 56.0;

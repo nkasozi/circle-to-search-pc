@@ -63,6 +63,16 @@ echo "  ✓ Copied executable"
 cp -r tessdata/* "$INSTALL_DIR/tessdata/"
 echo "  ✓ Copied tessdata"
 
+FFMPEG_BUILD="ffmpeg-n7.1-latest-linux64-gpl-7.1"
+FFMPEG_DOWNLOAD_DIR="$(mktemp -d)"
+curl -fsSL -o "$FFMPEG_DOWNLOAD_DIR/ffmpeg.tar.xz" "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/${FFMPEG_BUILD}.tar.xz"
+tar -xf "$FFMPEG_DOWNLOAD_DIR/ffmpeg.tar.xz" -C "$FFMPEG_DOWNLOAD_DIR"
+cp "$FFMPEG_DOWNLOAD_DIR/${FFMPEG_BUILD}/bin/ffmpeg" "$INSTALL_DIR/ffmpeg"
+cp "$FFMPEG_DOWNLOAD_DIR/${FFMPEG_BUILD}/LICENSE.txt" "$INSTALL_DIR/FFMPEG-LICENSE.txt"
+chmod +x "$INSTALL_DIR/ffmpeg"
+rm -rf "$FFMPEG_DOWNLOAD_DIR"
+echo "  ✓ Bundled the recording component (ffmpeg)"
+
 if [ -f "assets/icons/icon.png" ]; then
     cp "assets/icons/icon.png" "$INSTALL_DIR/"
     echo "  ✓ Copied icon"

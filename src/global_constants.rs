@@ -1,59 +1,19 @@
 #![allow(dead_code)]
 
-pub const APPLICATION_NAME: &str = "Circle to Search - Desktop";
 pub const APPLICATION_TITLE: &str = "Circle to Search";
 
-pub const HOTKEY_CAPTURE: &str = "Alt+Shift+S";
-pub const HOTKEY_CANCEL: &str = "Escape";
-pub const HOTKEY_EXIT: &str = "Ctrl+C";
-
-pub const LOG_TAG_APP: &str = "[APP]";
 pub const LOG_TAG_CAPTURE: &str = "[CAPTURE]";
-pub const LOG_TAG_KEYBOARD: &str = "[KEYBOARD]";
-pub const LOG_TAG_WINDOW: &str = "[WINDOW]";
 
-pub const MESSAGE_STARTING_APP: &str = "starting circle-to-search-pc";
-pub const MESSAGE_INITIALIZING_APP: &str = "initializing app";
-pub const MESSAGE_OPENING_CAPTURE: &str = "opening capture window";
-pub const MESSAGE_CAPTURE_CREATED: &str = "capture window created successfully";
-pub const MESSAGE_CAPTURE_FAILED: &str = "failed to create capture";
-pub const MESSAGE_WINDOW_CLOSED: &str = "window closed";
-pub const MESSAGE_EXITING_APP: &str = "exiting application";
-pub const MESSAGE_CANCEL_REQUESTED: &str = "cancel requested";
-pub const MESSAGE_MONITOR_FOUND: &str = "found monitor at";
-pub const MESSAGE_MONITOR_FAILED: &str = "failed to get monitor";
 pub const MESSAGE_MOUSE_POSITION_FAILED: &str = "failed to get mouse position, using (0,0)";
-pub const MESSAGE_CREATING_CAPTURE: &str = "creating new capture";
-pub const MESSAGE_CANCEL_RECEIVED: &str = "cancel message received";
-
-pub const MESSAGE_KEYBOARD_ALT_PRESSED: &str = "Alt pressed";
-pub const MESSAGE_KEYBOARD_ALT_RELEASED: &str = "Alt released";
-pub const MESSAGE_KEYBOARD_SHIFT_PRESSED: &str = "Shift pressed";
-pub const MESSAGE_KEYBOARD_SHIFT_RELEASED: &str = "Shift released";
-pub const MESSAGE_KEYBOARD_HOTKEY_DETECTED: &str = "Alt+Shift+S detected - opening capture";
-pub const MESSAGE_KEYBOARD_ESCAPE_PRESSED: &str = "Escape pressed - canceling";
-
-pub const USER_MESSAGE_INFO_OPENING: &str = "[INFO] Opening capture window...";
-pub const USER_MESSAGE_SUCCESS_OPENED: &str =
-    "[SUCCESS] Capture window opened! Press Escape to cancel.";
-pub const USER_MESSAGE_INFO_CLOSED: &str = "[INFO] Capture window closed. Ready for next capture.";
 
 pub const ERROR_CONTEXT_SCALE_FACTOR: &str = "Unable to get scale factor";
 pub const ERROR_CONTEXT_CAPTURE_MONITOR: &str = "Unable to capture Monitor";
-
-pub const CAPTURE_FORMAT_DIMENSIONS: &str = "captured {}x{} screenshot, scale_factor={}";
-
-pub const DEFAULT_MOUSE_POSITION_X: i32 = 0;
-pub const DEFAULT_MOUSE_POSITION_Y: i32 = 0;
-
-pub const OVERLAY_BACKGROUND_RGBA: (f32, f32, f32, f32) = (0.0, 0.0, 0.0, 0.3);
 
 pub const IMGBB_API_URL: &str = "https://api.imgbb.com/1/upload";
 pub const IMGBB_PUBLIC_KEY: &str = "851a50a8320bc2c59b0f564f0a1343de";
 pub const IMGBB_EXPIRATION_SECONDS: &str = "900";
 pub const IMGBB_PUBLIC_KEY_QUERY_NAME: &str = "key";
 pub const IMGBB_PUBLIC_KEY_ENV_VAR_NAME: &str = "IMGBB_API_KEY";
-pub const IMGBB_HTTP_METHOD: &str = "POST";
 pub const IMGBB_IMAGE_FIELD_NAME: &str = "image";
 pub const IMAGE_HOSTING_VALIDATION_URL_EMPTY: &str = "Image hosting URL cannot be empty";
 pub const IMAGE_HOSTING_VALIDATION_URL_INVALID: &str =
@@ -72,48 +32,17 @@ pub const DEFAULT_CAPTURE_HOTKEY: &str = "Alt+Shift+S";
 
 pub const SETTINGS_FILE_NAME: &str = "settings.json";
 
-pub const STATUS_INITIALIZING: &str = "Initializing OCR service...";
+pub const STATUS_INITIALIZING: &str = "Loading text recognition…";
 pub const STATUS_PREPARING_CAPTURE: &str = "Preparing to capture...";
 pub const STATUS_CAPTURING_SCREEN: &str = "Capturing screen...";
 pub const STATUS_OVERLAY_READY: &str = "Overlay ready!";
 pub const STATUS_PROCESSING_SELECTION: &str = "Processing selection...";
 pub const STATUS_READY_SIMPLE: &str = "Ready";
 
-pub const LOG_TAG_RECORDING: &str = "[RECORDING]";
-
-pub const FFMPEG_BINARY_NAME: &str = "ffmpeg";
-pub const FFMPEG_VIDEO_FORMAT: &str = "rawvideo";
-pub const FFMPEG_PIXEL_FORMAT: &str = "rgba";
-pub const FFMPEG_AUDIO_FORMAT: &str = "s16le";
-pub const FFMPEG_VIDEO_CODEC: &str = "libx264";
-pub const FFMPEG_AUDIO_CODEC: &str = "aac";
-pub const FFMPEG_VIDEO_PRESET: &str = "fast";
-pub const FFMPEG_OUTPUT_FORMAT: &str = "mp4";
-pub const FFMPEG_LOG_LEVEL: &str = "warning";
-
-pub const DEFAULT_RECORDING_FRAMES_PER_SECOND: u32 = 30;
-pub const DEFAULT_RECORDING_WEBCAM_PIP_SIZE_PERCENTAGE: f32 = 0.2;
-pub const DEFAULT_AUDIO_SAMPLE_RATE: u32 = 44100;
-pub const DEFAULT_AUDIO_CHANNEL_COUNT: u16 = 2;
-
-pub const RECORDING_FRAME_CHANNEL_BUFFER_SIZE: usize = 5;
-pub const RECORDING_AUDIO_CHANNEL_BUFFER_SIZE: usize = 10;
-pub const RECORDING_PREVIEW_CHANNEL_BUFFER_SIZE: usize = 3;
-
-pub const DEFAULT_WEBCAM_CAPTURE_WIDTH: u32 = 480;
-pub const DEFAULT_WEBCAM_CAPTURE_HEIGHT: u32 = 360;
-
 pub const HOTKEY_RECORD: &str = "Alt+Shift+R";
 
-pub const MESSAGE_RECORDING_STARTED: &str = "screen recording started";
-pub const MESSAGE_RECORDING_PAUSED: &str = "screen recording paused";
-pub const MESSAGE_RECORDING_RESUMED: &str = "screen recording resumed";
-pub const MESSAGE_RECORDING_STOPPED: &str = "screen recording stopped";
-pub const MESSAGE_RECORDING_FAILED: &str = "screen recording failed";
-pub const MESSAGE_FFMPEG_NOT_FOUND: &str = "ffmpeg not found on system PATH";
-pub const MESSAGE_FFMPEG_DETECTED: &str = "ffmpeg detected on system";
 pub const STATUS_OCR_COMPLETE: &str = "OCR complete";
-pub const STATUS_READY: &str = "Ready - Press Alt+Shift+S to capture";
+pub const STATUS_READY: &str = "Ready";
 pub const STATUS_PROCESSING_OCR: &str = "Processing OCR...";
 pub const STATUS_SETTINGS_SAVED: &str = "Settings saved";
 pub const STATUS_SETTINGS_EDITOR_NOT_ACTIVE: &str = "Settings editor is not active";
@@ -165,9 +94,6 @@ pub const MAIN_WINDOW_OR_TEXT: &str = "OR";
 pub const MAIN_WINDOW_KEEP_RUNNING_LABEL: &str = "Keep running in background";
 pub const MAIN_WINDOW_ICON_SETTINGS: &str = "⚙";
 pub const MAIN_WINDOW_SETTINGS_BUTTON_LABEL: &str = "Settings";
-pub const MAIN_WINDOW_ICON_RECORD: &str = "⏺";
-pub const MAIN_WINDOW_RECORD_BUTTON_LABEL: &str = "Record Screen";
-pub const MAIN_WINDOW_RECORD_HOTKEY_HINT_TEMPLATE: &str = "Or press {hotkey} anywhere";
 pub const MAIN_WINDOW_HOTKEY_TEMPLATE_TOKEN: &str = "{hotkey}";
 pub const MAIN_WINDOW_STATUS_ICON_FILLED: &str = "●";
 pub const MAIN_WINDOW_STATUS_ICON_EMPTY: &str = "○";
@@ -193,7 +119,6 @@ pub const SETTINGS_DESCRIPTION_EXPIRATION_SECONDS: &str = "Upload expiry lifetim
 pub const SETTINGS_PUBLIC_KEY_PLACEHOLDER: &str = "Enter public key";
 pub const SETTINGS_LABEL_HTTP_METHOD: &str = "HTTP Method";
 pub const SETTINGS_DESCRIPTION_HTTP_METHOD: &str = "HTTP method used for image upload requests";
-pub const SETTINGS_HTTP_METHOD_PLACEHOLDER: &str = "POST";
 pub const SETTINGS_LABEL_IMAGE_FIELD_NAME: &str = "Image Field Name";
 pub const SETTINGS_DESCRIPTION_IMAGE_FIELD_NAME: &str =
     "Multipart form field name for the base64 image";
@@ -210,15 +135,6 @@ pub const SETTINGS_DESCRIPTION_THEME: &str = "Choose light or dark mode";
 pub const SETTINGS_ICON_SAVE: &str = "💾";
 pub const SETTINGS_SAVE_CHANGES_LABEL: &str = "Save Changes";
 
-pub const STARTUP_BANNER: &str = r#"
-╔════════════════════════════════════════════════════════╗
-║  Circle to Search - Desktop                            ║
-║                                                        ║
-║  App is running in the background!                     ║
-║                                                        ║
-║  Press Alt+Shift+S to capture screen                   ║
-║  Press Escape to cancel capture                        ║
-║  Press Ctrl+C to exit                                  ║
-║                                                        ║
-╚════════════════════════════════════════════════════════╝
-"#;
+pub const RECORDINGS_FOLDER_NAME: &str = "Circle to Search";
+pub const STATUS_KEYWORD_UNAVAILABLE: &str = "unavailable";
+pub const STATUS_KEYWORD_SAVED: &str = "saved";

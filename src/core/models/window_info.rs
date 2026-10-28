@@ -33,12 +33,10 @@ impl WindowInfo {
     }
 
     pub fn display_name(&self) -> String {
-        if self.title.is_empty() {
-            self.app_name.clone()
-        } else if self.app_name.is_empty() {
-            self.title.clone()
-        } else {
-            format!("{} - {}", self.app_name, self.title)
+        match (self.title.is_empty(), self.app_name.is_empty()) {
+            (true, _) => self.app_name.clone(),
+            (false, true) => self.title.clone(),
+            (false, false) => format!("{} - {}", self.app_name, self.title),
         }
     }
 }

@@ -1,0 +1,15 @@
+pub const AV_MEDIA_TYPE_VIDEO_NAME: &str = "AVMediaTypeVideo";
+pub const AV_MEDIA_TYPE_AUDIO_NAME: &str = "AVMediaTypeAudio";
+pub const AV_FILE_TYPE_MPEG4_NAME: &str = "AVFileTypeMPEG4";
+pub const AV_VIDEO_AVERAGE_BIT_RATE_KEY_NAME: &str = "AVVideoAverageBitRateKey";
+pub const AV_VIDEO_EXPECTED_SOURCE_FRAME_RATE_KEY_NAME: &str = "AVVideoExpectedSourceFrameRateKey";
+pub const AV_VIDEO_MAX_KEY_FRAME_INTERVAL_KEY_NAME: &str = "AVVideoMaxKeyFrameIntervalKey";
+pub const AV_VIDEO_CODEC_KEY_NAME: &str = "AVVideoCodecKey";
+pub const AV_VIDEO_CODEC_TYPE_H264_NAME: &str = "AVVideoCodecTypeH264";
+pub const AV_VIDEO_WIDTH_KEY_NAME: &str = "AVVideoWidthKey";
+pub const AV_VIDEO_HEIGHT_KEY_NAME: &str = "AVVideoHeightKey";
+pub const AV_VIDEO_COMPRESSION_PROPERTIES_KEY_NAME: &str = "AVVideoCompressionPropertiesKey";
+pub const AV_FORMAT_ID_KEY_NAME: &str = "AVFormatIDKey";
+pub const AV_SAMPLE_RATE_KEY_NAME: &str = "AVSampleRateKey";
+pub const AV_NUMBER_OF_CHANNELS_KEY_NAME: &str = "AVNumberOfChannelsKey";
+pub const AV_ENCODER_BIT_RATE_KEY_NAME: &str = "AVEncoderBitRateKey";

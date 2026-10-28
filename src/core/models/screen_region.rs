@@ -1,3 +1,7 @@
+const LOG_TAG: &str = "[SCREEN_REGION]";
+const SCREEN_REGION_CREATING_EVENT: &str = "screen_region_creating";
+const SCREEN_REGION_DEFAULT_ORIGIN_EVENT: &str = "screen_region_default_origin";
+
 #[derive(Debug)]
 pub struct ScreenRegion {
     pub x_position: i32,
@@ -7,9 +11,9 @@ pub struct ScreenRegion {
 impl ScreenRegion {
     pub fn at_coordinates(x_position: i32, y_position: i32) -> Self {
         log::debug!(
-            "[SCREEN_REGION] creating region at ({}, {})",
-            x_position,
-            y_position
+            "{} {}",
+            LOG_TAG,
+            serde_json::json!({"event": SCREEN_REGION_CREATING_EVENT, "x_position": x_position, "y_position": y_position})
         );
 
         Self {
@@ -20,7 +24,11 @@ impl ScreenRegion {
 
     #[allow(dead_code)]
     pub fn default_origin() -> Self {
-        log::debug!("[SCREEN_REGION] using default origin (0, 0)");
+        log::debug!(
+            "{} {}",
+            LOG_TAG,
+            serde_json::json!({"event": SCREEN_REGION_DEFAULT_ORIGIN_EVENT})
+        );
 
         Self {
             x_position: 0,
