@@ -5,6 +5,12 @@ use std::sync::Arc;
 use crate::core::interfaces::adapters::{ImageHostingService, ReverseImageSearchProvider};
 use crate::core::models::CaptureBuffer;
 
+const SEARCH_URL_PLACEHOLDER: &str = "{}";
+const QUERY_PARAMETER_PREFIX: &str = "&q=";
+const LOG_TAG: &str = "[GOOGLE_LENS]";
+const REVERSE_IMAGE_SEARCH_OPENING_EVENT: &str = "reverse_image_search_opening";
+const REVERSE_IMAGE_SEARCH_DETAILS_EVENT: &str = "reverse_image_search_details";
+
 pub struct GoogleLensSearchProvider {
     image_hosting_service: Arc<dyn ImageHostingService>,
     search_url_template: String,
@@ -23,15 +29,17 @@ impl GoogleLensSearchProvider {
 
     fn construct_search_url(&self, image_url: &str, query: Option<&str>) -> String {
         let encoded_url = urlencoding::encode(image_url);
-        let mut url = self.search_url_template.replace("{}", &encoded_url);
+        let mut search_url = self
+            .search_url_template
+            .replace(SEARCH_URL_PLACEHOLDER, &encoded_url);
 
-        if let Some(q) = query.filter(|q| !q.trim().is_empty()) {
-            let encoded_query = urlencoding::encode(q.trim());
-            url.push_str("&q=");
-            url.push_str(&encoded_query);
+        if let Some(query_text) = query.filter(|query_text| !query_text.trim().is_empty()) {
+            let encoded_query = urlencoding::encode(query_text.trim());
+            search_url.push_str(QUERY_PARAMETER_PREFIX);
+            search_url.push_str(&encoded_query);
         }
 
-        url
+        search_url
     }
 }
 
@@ -42,12 +50,16 @@ impl ReverseImageSearchProvider for GoogleLensSearchProvider {
 
         let search_url = self.construct_search_url(&image_url, query);
 
-        log::info!("[GOOGLE_LENS] Opening Google Lens reverse image search");
-        log::debug!("[GOOGLE_LENS] Image URL: {}", image_url);
-        log::debug!("[GOOGLE_LENS] Search URL: {}", search_url);
-        if let Some(q) = query {
-            log::debug!("[GOOGLE_LENS] Query: {}", q);
-        }
+        log::info!(
+            "{} {}",
+            LOG_TAG,
+            serde_json::json!({"event": REVERSE_IMAGE_SEARCH_OPENING_EVENT})
+        );
+        log::debug!(
+            "{} {}",
+            LOG_TAG,
+            serde_json::json!({"event": REVERSE_IMAGE_SEARCH_DETAILS_EVENT, "image_url": image_url, "search_url": search_url, "query": query})
+        );
 
         open::that(&search_url)?;
 

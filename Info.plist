@@ -21,9 +21,11 @@
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSScreenCaptureUsageDescription</key>
-    <string>Circle to Search needs permission to capture your screen to enable search functionality. This allows you to select and search for text and images on your screen.</string>
-    <key>NSAccessibilityUsageDescription</key>
-    <string>Circle to Search needs accessibility permission to detect keyboard shortcuts (Alt+Shift+S) that trigger the screen capture feature.</string>
+    <string>Circle to Search captures your screen so you can search, copy text from, annotate and record anything you see.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Circle to Search shows your camera in a bubble while you record tutorials. The camera is only used while the camera bubble is on.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Circle to Search records your voice for screen recordings. The microphone is only used while you are recording with the mic turned on.</string>
     <key>LSAlternateNames</key>
     <array>
         <string>circle-to-search</string>

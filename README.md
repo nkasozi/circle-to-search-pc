@@ -1,6 +1,6 @@
 # Circle to Search For MacOs / Windows / Linux
 
-A desktop application that brings Google Lens-style "Circle to Search" functionality to your Mac, Windows or Linux machine. Select any region of your screen, extract text using OCR, or perform reverse image searches directly from your desktop. This should works on Macos, windows, linux.
+A desktop application that brings Google Lens-style "Circle to Search" functionality to your Mac, Windows or Linux machine. Select any region of your screen, extract text using OCR, perform reverse image searches, and record polished screen tutorials with your camera, voice, click highlights and live annotations.
 
 ## Install (macOS)
 
@@ -29,11 +29,20 @@ This multi-step process is tedious and breaks workflow concentration.
 
 Circle to Search PC provides:
 
-- **Global Hotkey Activation**: Trigger screen capture from anywhere with a customizable keyboard shortcut
-- **Interactive Region Selection**: Click and drag to select any screen area
-- **OCR Text Extraction**: Extract text from selected regions using Tesseract OCR
-- **Reverse Image Search**: Upload selected regions to perform Google Lens searches
-- **Seamless Integration**: Works across all applications without manual file management
+- **Global Hotkeys**: `⌥⇧S` / `Alt+Shift+S` to search, `⌥⇧R` / `Alt+Shift+R` to record. Both are customizable in Settings and need no extra permissions
+- **Circle or Drag to Select**: Draw a box or a freeform circle; the selection opens as soon as you let go
+- **Instant OCR**: Text is recognised automatically so you can drag-select and copy it
+- **Reverse Image Search**: Send the selection to Google Lens, optionally with extra words
+- **Markup**: Draw on captures before copying or saving them
+- **Screen Recorder**: Record an area or the whole screen with:
+  - A draggable camera bubble (circle or rounded square)
+  - Microphone and system audio
+  - Bright click ripples and an optional cursor spotlight
+  - Live drawing on screen (pen, highlighter, arrow, box)
+  - Pause, resume and discard from a floating control pill that never appears in the video
+  - A countdown, crisp Retina output and a "Recording saved" card with preview, play and show-in-folder
+- **Built-in Player**: Play your recordings right inside the app with play/pause (`Space`), scrubbing, and audio. No other app needed
+- **Self-contained**: native hardware encoding on macOS (AVFoundation) and Windows (Media Foundation), and a bundled encoder on Linux. Nothing extra to install anywhere
 
 ## Screenshots
 
@@ -248,12 +257,13 @@ For macOS, create the app bundle manually:
 
 The application will automatically detect tessdata in the executable directory or use system Tesseract data as fallback.
 
-**Note on Permissions**: On first launch, macOS will prompt for Screen Recording and Accessibility permissions. These are required for:
+**Note on Permissions**: On macOS the only permission needed up front is **Screen Recording**. The onboarding requests it with one click and notices automatically when it is granted. Camera and microphone access are requested only the first time you turn them on in the recorder. Global shortcuts use the native hotkey API, so Input Monitoring and Accessibility are not required.
 
-- **Screen Recording**: To capture your screen for search functionality
-- **Accessibility**: To detect the keyboard shortcut (Alt+Shift+S)
+**Recording is fully self-contained.** Nothing extra needs to be installed on any platform:
 
-The app will guide you through granting these permissions via System Settings.
+- **macOS**: ScreenCaptureKit and AVFoundation hardware encoding
+- **Windows**: Media Foundation hardware encoding
+- **Linux**: a static FFmpeg build ships inside the AppImage and the installer. The app only uses this bundled copy (GPL; its license is included next to it)
 
 ### Running
 
@@ -318,21 +328,29 @@ All external dependencies are mocked for isolated testing. Tests are co-located 
 
 ## Usage
 
-1. **Launch Application**: Start the application using `cargo run` or the executable
-2. **Trigger Capture**: Press the configured hotkey (default: `Ctrl+Shift+D`)
-3. **Select Region**: Click and drag to select the screen area
-4. **Choose Action**:
-   - **Extract Text**: Click "Perform OCR" to extract text from the selection
-   - **Search Image**: Click "Search" to perform a reverse image search
-5. **View Results**: OCR text appears in the results panel, search opens in your browser
+### Search
+
+1. Press `⌥⇧S` (`Alt+Shift+S`) anywhere
+2. Drag a box or circle around what you want; it opens the moment you let go
+3. Drag across recognised text to copy it, press **Search** for Google Lens, or mark it up and copy or save the image
+
+### Record
+
+1. Press `⌥⇧R` (`Alt+Shift+R`) anywhere, or click **Record screen** on the home window
+2. Drag the area to record, or choose **Full screen**, and toggle camera, microphone, system audio and click highlights
+3. Press **Record**; after a short countdown, use the floating pill to pause, draw on screen, stop or discard
+4. Press `⌥⇧R` again (or the stop button) to finish. Recordings are saved to `~/Movies/Circle to Search` by default
 
 ## Technology Stack
 
 - **Language**: Rust
 - **GUI Framework**: Iced 0.15
 - **Async Runtime**: Tokio
-- **OCR**: rusty-tesseract (Tesseract wrapper)
-- **Screen Capture**: xcap
+- **OCR**: tesseract-static (bundled Tesseract)
+- **Screen Capture**: xcap (screenshots), ScreenCaptureKit (macOS recording), xcap polling (Windows/Linux recording)
+- **Encoding**: AVFoundation AVAssetWriter (macOS), Media Foundation (Windows), bundled static FFmpeg (Linux)
+- **Camera / Audio**: AVFoundation (macOS camera), nokhwa (Windows/Linux camera), cpal (microphone)
+- **Global Hotkeys**: global-hotkey
 - **Image Processing**: image crate
 - **HTTP Client**: reqwest
 - **Configuration**: serde_json

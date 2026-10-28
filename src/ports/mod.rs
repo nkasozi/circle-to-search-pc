@@ -1,9 +1,7 @@
-mod keyboard_listener;
-mod mouse_position_provider;
+mod global_hotkey_listener;
 pub mod system_tray;
 mod xcap_screen_capturer;
 
-pub use keyboard_listener::{GlobalKeyboardEvent, GlobalKeyboardListener};
-pub use mouse_position_provider::SystemMousePositionProvider;
-pub use system_tray::{SystemTray, TrayEvent};
+pub use global_hotkey_listener::{GlobalHotkeyListener, HotkeyApplyOutcome};
+pub use system_tray::{SystemTray, TrayEvent, TrayShortcuts};
 pub use xcap_screen_capturer::XcapScreenCapturer;

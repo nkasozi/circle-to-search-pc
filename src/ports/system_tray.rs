@@ -1,163 +1,160 @@
-use std::sync::OnceLock;
-use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem};
+use std::str::FromStr;
+
+use tray_icon::menu::accelerator::Accelerator;
+use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
 use crate::global_constants;
 
-const TRAY_MENU_SHOW_WINDOW: &str = "Show Window";
-const TRAY_MENU_SELECT_WINDOW: &str = "Select Window to Capture...";
-const TRAY_MENU_QUIT: &str = "Quit";
-
-static SHOW_WINDOW_ID: OnceLock<MenuId> = OnceLock::new();
-static SELECT_WINDOW_ID: OnceLock<MenuId> = OnceLock::new();
-static SETTINGS_ID: OnceLock<MenuId> = OnceLock::new();
-static QUIT_ID: OnceLock<MenuId> = OnceLock::new();
+const SEARCH_ITEM_ID: &str = "tray-search";
+const RECORD_ITEM_ID: &str = "tray-record";
+const HOME_ITEM_ID: &str = "tray-home";
+const SETTINGS_ITEM_ID: &str = "tray-settings";
+const QUIT_ITEM_ID: &str = "tray-quit";
+const SEARCH_ITEM_LABEL: &str = "Search Screen";
+const RECORD_ITEM_LABEL: &str = "Record Screen";
+const STOP_RECORDING_ITEM_LABEL: &str = "Stop Recording";
+const HOME_ITEM_LABEL: &str = "Open Circle to Search";
+const SETTINGS_ITEM_LABEL: &str = "Settings…";
+const QUIT_ITEM_LABEL: &str = "Quit Circle to Search";
+const LOG_TAG: &str = "[SYSTEM_TRAY]";
+const EVENT_SYSTEM_TRAY_CREATED: &str = "system_tray_created";
+const EVENT_TRAY_MENU_SELECTED: &str = "tray_menu_selected";
 
 pub struct SystemTray {
     _tray_icon: TrayIcon,
     _menu: Menu,
-    _show_window_item: MenuItem,
-    _select_window_item: MenuItem,
-    _settings_item: MenuItem,
-    _quit_item: MenuItem,
+    record_item: MenuItem,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayEvent {
+    SearchScreen,
+    ToggleRecording,
     ShowWindow,
-    SelectWindow,
     OpenSettings,
     Quit,
 }
 
+pub struct TrayShortcuts<'a> {
+    pub capture_hotkey: &'a str,
+    pub recording_hotkey: &'a str,
+}
+
 impl SystemTray {
-    pub fn build() -> anyhow::Result<Self> {
-        log::info!("[SYSTEM_TRAY] Initializing system tray");
-
-        let icon_bytes = include_bytes!("../assets/tray_icon.png");
-        let icon_image = image::load_from_memory(icon_bytes)?;
-        let icon_rgba = icon_image.to_rgba8();
-        let (width, height) = icon_rgba.dimensions();
-
-        let icon = Icon::from_rgba(icon_rgba.into_raw(), width, height)?;
-
-        let menu = Menu::new();
-        let show_window_item = MenuItem::new(TRAY_MENU_SHOW_WINDOW, true, None);
-        let select_window_item = MenuItem::new(TRAY_MENU_SELECT_WINDOW, true, None);
-        let settings_item = MenuItem::new(global_constants::SETTINGS_WINDOW_TITLE, true, None);
-        let quit_item = MenuItem::new(TRAY_MENU_QUIT, true, None);
-
-        let _ = SHOW_WINDOW_ID.set(show_window_item.id().clone());
-        let _ = SELECT_WINDOW_ID.set(select_window_item.id().clone());
-        let _ = SETTINGS_ID.set(settings_item.id().clone());
-        let _ = QUIT_ID.set(quit_item.id().clone());
-
-        log::info!(
-            "[SYSTEM_TRAY] Menu item IDs - Show: {:?}, SelectWindow: {:?}, Settings: {:?}, Quit: {:?}",
-            show_window_item.id(),
-            select_window_item.id(),
-            settings_item.id(),
-            quit_item.id()
-        );
-
-        menu.append(&show_window_item)?;
-        menu.append(&select_window_item)?;
-        menu.append(&settings_item)?;
-        menu.append(&quit_item)?;
-
+    pub fn build(shortcuts: TrayShortcuts<'_>) -> anyhow::Result<Self> {
+        let icon = load_tray_icon()?;
+        let (menu, record_item) = build_tray_menu(&shortcuts)?;
         let tray_icon = TrayIconBuilder::new()
             .with_menu(Box::new(menu.clone()))
             .with_tooltip(global_constants::APPLICATION_TITLE)
             .with_icon(icon)
+            .with_icon_as_template(true)
             .build()?;
-
-        log::info!("[SYSTEM_TRAY] System tray initialized successfully");
-
+        log::info!(
+            "{} {}",
+            LOG_TAG,
+            serde_json::json!({"event": EVENT_SYSTEM_TRAY_CREATED})
+        );
         Ok(Self {
             _tray_icon: tray_icon,
             _menu: menu,
-            _show_window_item: show_window_item,
-            _select_window_item: select_window_item,
-            _settings_item: settings_item,
-            _quit_item: quit_item,
+            record_item,
         })
     }
 
+    pub fn show_recording_state(&self, is_recording: bool) -> bool {
+        let label = match is_recording {
+            true => STOP_RECORDING_ITEM_LABEL,
+            false => RECORD_ITEM_LABEL,
+        };
+        self.record_item.set_text(label);
+        is_recording
+    }
+
     pub fn poll_events() -> Option<TrayEvent> {
-        if let Ok(event) = MenuEvent::receiver().try_recv() {
-            log::info!("[SYSTEM_TRAY] Received menu event: {:?}", event.id);
-            return TrayEvent::from_menu_event(&event);
-        }
-        None
+        let event = MenuEvent::receiver().try_recv().ok()?;
+        let tray_event = resolve_tray_event(event.id.as_ref());
+        log::info!(
+            "{} {}",
+            LOG_TAG,
+            serde_json::json!({"event": EVENT_TRAY_MENU_SELECTED, "id": event.id.as_ref(), "resolved": format!("{:?}", tray_event)})
+        );
+        tray_event
     }
 }
 
-impl TrayEvent {
-    fn from_menu_event(event: &MenuEvent) -> Option<Self> {
-        let event_id = &event.id;
+fn load_tray_icon() -> anyhow::Result<Icon> {
+    let icon_rgba = image::load_from_memory(include_bytes!("../assets/tray_icon.png"))?.to_rgba8();
+    let (width, height) = icon_rgba.dimensions();
+    Ok(Icon::from_rgba(icon_rgba.into_raw(), width, height)?)
+}
 
-        if SHOW_WINDOW_ID
-            .get()
-            .map(|id| id == event_id)
-            .unwrap_or(false)
-        {
-            log::info!("[SYSTEM_TRAY] Show Window clicked");
-            return Some(TrayEvent::ShowWindow);
-        }
+fn build_tray_menu(shortcuts: &TrayShortcuts<'_>) -> anyhow::Result<(Menu, MenuItem)> {
+    let search_item = MenuItem::with_id(
+        SEARCH_ITEM_ID,
+        SEARCH_ITEM_LABEL,
+        true,
+        parse_accelerator(shortcuts.capture_hotkey),
+    );
+    let record_item = MenuItem::with_id(
+        RECORD_ITEM_ID,
+        RECORD_ITEM_LABEL,
+        true,
+        parse_accelerator(shortcuts.recording_hotkey),
+    );
+    let home_item = MenuItem::with_id(HOME_ITEM_ID, HOME_ITEM_LABEL, true, None);
+    let settings_item = MenuItem::with_id(SETTINGS_ITEM_ID, SETTINGS_ITEM_LABEL, true, None);
+    let quit_item = MenuItem::with_id(QUIT_ITEM_ID, QUIT_ITEM_LABEL, true, None);
+    let menu = Menu::new();
+    menu.append_items(&[
+        &search_item,
+        &record_item,
+        &PredefinedMenuItem::separator(),
+        &home_item,
+        &settings_item,
+        &PredefinedMenuItem::separator(),
+        &quit_item,
+    ])?;
+    Ok((menu, record_item))
+}
 
-        if SELECT_WINDOW_ID
-            .get()
-            .map(|id| id == event_id)
-            .unwrap_or(false)
-        {
-            log::info!("[SYSTEM_TRAY] Select Window clicked");
-            return Some(TrayEvent::SelectWindow);
-        }
+fn parse_accelerator(accelerator: &str) -> Option<Accelerator> {
+    Accelerator::from_str(accelerator).ok()
+}
 
-        if SETTINGS_ID.get().map(|id| id == event_id).unwrap_or(false) {
-            log::info!("[SYSTEM_TRAY] Settings clicked");
-            return Some(TrayEvent::OpenSettings);
-        }
-
-        if QUIT_ID.get().map(|id| id == event_id).unwrap_or(false) {
-            log::info!("[SYSTEM_TRAY] Quit clicked");
-            return Some(TrayEvent::Quit);
-        }
-
-        log::warn!("[SYSTEM_TRAY] Unknown menu event ID: {:?}", event_id);
-        None
+pub fn resolve_tray_event(menu_item_id: &str) -> Option<TrayEvent> {
+    match menu_item_id {
+        SEARCH_ITEM_ID => Some(TrayEvent::SearchScreen),
+        RECORD_ITEM_ID => Some(TrayEvent::ToggleRecording),
+        HOME_ITEM_ID => Some(TrayEvent::ShowWindow),
+        SETTINGS_ITEM_ID => Some(TrayEvent::OpenSettings),
+        QUIT_ITEM_ID => Some(TrayEvent::Quit),
+        _ => None,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::TrayEvent;
+    use super::*;
 
     #[test]
-    fn test_tray_event_debug_implements() {
-        let event = TrayEvent::ShowWindow;
-        let debug_str = format!("{:?}", event);
-        assert!(debug_str.contains("ShowWindow"));
+    fn test_menu_ids_resolve_to_events() {
+        assert_eq!(
+            resolve_tray_event(SEARCH_ITEM_ID),
+            Some(TrayEvent::SearchScreen)
+        );
+        assert_eq!(
+            resolve_tray_event(RECORD_ITEM_ID),
+            Some(TrayEvent::ToggleRecording)
+        );
+        assert_eq!(resolve_tray_event(QUIT_ITEM_ID), Some(TrayEvent::Quit));
+        assert_eq!(resolve_tray_event("unknown"), None);
     }
 
     #[test]
-    fn test_tray_event_clone() {
-        let event = TrayEvent::ShowWindow;
-        let cloned = event.clone();
-
-        matches!(cloned, TrayEvent::ShowWindow);
-    }
-
-    #[test]
-    fn test_all_tray_event_variants_are_cloneable() {
-        let show_window = TrayEvent::ShowWindow;
-        let select_window = TrayEvent::SelectWindow;
-        let settings = TrayEvent::OpenSettings;
-        let quit = TrayEvent::Quit;
-
-        let _cloned1 = show_window.clone();
-        let _cloned2 = select_window.clone();
-        let _cloned3 = settings.clone();
-        let _cloned4 = quit.clone();
+    fn test_default_hotkeys_parse_as_menu_accelerators() {
+        assert!(parse_accelerator("Alt+Shift+S").is_some());
+        assert!(parse_accelerator("Alt+Shift+R").is_some());
     }
 }

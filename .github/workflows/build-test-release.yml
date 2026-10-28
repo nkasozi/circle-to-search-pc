@@ -249,6 +249,14 @@ jobs:
           mkdir -p AppDir/usr/share/tessdata
           cp tessdata/eng.traineddata AppDir/usr/share/tessdata/
 
+          FFMPEG_BUILD=ffmpeg-n7.1-latest-linux64-gpl-7.1
+          wget -q -O ffmpeg.tar.xz "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/${FFMPEG_BUILD}.tar.xz"
+          tar -xf ffmpeg.tar.xz
+          cp "${FFMPEG_BUILD}/bin/ffmpeg" AppDir/usr/bin/ffmpeg
+          chmod +x AppDir/usr/bin/ffmpeg
+          mkdir -p AppDir/usr/share/doc/ffmpeg
+          cp "${FFMPEG_BUILD}/LICENSE.txt" AppDir/usr/share/doc/ffmpeg/LICENSE.txt
+
           mkdir -p AppDir/usr/share/applications
           cat > AppDir/usr/share/applications/circle-to-search-pc.desktop << EOF
           [Desktop Entry]

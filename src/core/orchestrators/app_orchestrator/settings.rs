@@ -1,165 +1,146 @@
 use super::*;
-use crate::adapters::{GoogleLensSearchProvider, ImgbbImageHostingService};
+use crate::presentation::settings_view::{
+    apply_settings_change, build_accelerator, PressedModifiers, SettingsChange, SettingsMessage,
+    SettingsViewState,
+};
+
+mod saving;
+mod validation;
+
+const SETTINGS_WINDOW_SIZE: Size = Size::new(680.0, 760.0);
+const SETTINGS_WINDOW_MINIMUM_SIZE: Size = Size::new(560.0, 560.0);
+const EVENT_SETTINGS_WINDOW_OPENING: &str = "settings_window_opening";
+const EVENT_SETTINGS_DRAFT_CHANGED: &str = "settings_draft_changed";
 
 impl AppOrchestrator {
     pub(super) fn handle_open_settings(&mut self) -> Task<OrchestratorMessage> {
-        self.log_info_event("settings_window_opening", serde_json::json!({}));
-
-        if let Some(id) = self.settings_window_id {
-            self.log_info_event(
-                "settings_window_already_open",
-                serde_json::json!({"window_id": format!("{:?}", id)}),
-            );
-            return window::gain_focus(id);
+        let _ = self.log_info_event(EVENT_SETTINGS_WINDOW_OPENING, serde_json::json!({}));
+        if let Some(settings_window_id) = self.settings_window_id {
+            return window::gain_focus(settings_window_id);
         }
-
-        let (id, task) = window::open(window::Settings {
-            size: Size::new(500.0, 800.0),
+        let (settings_window_id, open_task) = window::open(window::Settings {
+            size: SETTINGS_WINDOW_SIZE,
+            min_size: Some(SETTINGS_WINDOW_MINIMUM_SIZE),
             position: window::Position::Centered,
-            resizable: false,
             ..Default::default()
         });
-
-        self.settings_window_id = Some(id);
-        self.begin_settings_edit();
-        self.windows.insert(id, AppWindow::Settings);
-        self.log_info_event(
-            "settings_window_created",
-            serde_json::json!({"window_id": format!("{:?}", id)}),
+        self.settings_window_id = Some(settings_window_id);
+        let _ = self.begin_settings_edit();
+        self.windows.insert(
+            settings_window_id,
+            AppWindow::Settings(SettingsViewState::default()),
         );
-
-        task.discard()
+        crate::adapters::macos_app_behavior::macos::activate_app_ignoring_other_apps();
+        open_task
+            .discard()
+            .chain(window::gain_focus(settings_window_id))
     }
 
-    pub(super) fn validate_image_hosting_settings(settings: &UserSettings) -> Result<(), String> {
-        if settings.image_hosting_provider_url.trim().is_empty() {
-            return Err(global_constants::IMAGE_HOSTING_VALIDATION_URL_EMPTY.to_string());
+    fn settings_view_state_mut(&mut self) -> Option<&mut SettingsViewState> {
+        let window_id = self.settings_window_id?;
+        match self.windows.get_mut(&window_id) {
+            Some(AppWindow::Settings(state)) => Some(state),
+            _ => None,
         }
-
-        if reqwest::Url::parse(settings.image_hosting_provider_url.trim()).is_err() {
-            return Err(global_constants::IMAGE_HOSTING_VALIDATION_URL_INVALID.to_string());
-        }
-
-        if settings.image_hosting_public_key_name.trim().is_empty() {
-            return Err(global_constants::IMAGE_HOSTING_VALIDATION_KEY_NAME_EMPTY.to_string());
-        }
-
-        if settings.image_hosting_public_key_value.trim().is_empty() {
-            return Err(global_constants::IMAGE_HOSTING_VALIDATION_KEY_EMPTY.to_string());
-        }
-
-        if settings.image_hosting_expiration_seconds.trim().is_empty() {
-            return Err(global_constants::IMAGE_HOSTING_VALIDATION_EXPIRATION_EMPTY.to_string());
-        }
-
-        if settings
-            .image_hosting_expiration_seconds
-            .trim()
-            .parse::<u64>()
-            .map_or(true, |expiration_seconds| expiration_seconds == 0)
-        {
-            return Err(global_constants::IMAGE_HOSTING_VALIDATION_EXPIRATION_INVALID.to_string());
-        }
-
-        Ok(())
     }
 
-    pub(super) fn should_rebuild_search_provider(
-        previous_settings: &UserSettings,
-        next_settings: &UserSettings,
-    ) -> bool {
-        next_settings.image_search_url_template != previous_settings.image_search_url_template
-            || next_settings.image_hosting_provider_url
-                != previous_settings.image_hosting_provider_url
-            || next_settings.image_hosting_auth_mode != previous_settings.image_hosting_auth_mode
-            || next_settings.image_hosting_public_key_name
-                != previous_settings.image_hosting_public_key_name
-            || next_settings.image_hosting_public_key_value
-                != previous_settings.image_hosting_public_key_value
-            || next_settings.image_hosting_expiration_seconds
-                != previous_settings.image_hosting_expiration_seconds
-            || next_settings.image_hosting_http_method
-                != previous_settings.image_hosting_http_method
-            || next_settings.image_hosting_image_field_name
-                != previous_settings.image_hosting_image_field_name
-    }
-
-    pub(super) fn handle_save_settings(&mut self) -> Task<OrchestratorMessage> {
-        let settings_for_validation = match &self.settings_edit_state {
-            SettingsEditState::Editing(settings) => settings,
-            SettingsEditState::Closed => {
-                self.log_error_event("settings_save_without_active_editor", serde_json::json!({}));
-                self.status = global_constants::STATUS_SETTINGS_EDITOR_NOT_ACTIVE.to_string();
-                return Task::none();
+    pub(super) fn handle_settings_message(
+        &mut self,
+        message: SettingsMessage,
+    ) -> Task<OrchestratorMessage> {
+        match message {
+            SettingsMessage::SelectTab(tab) => self
+                .settings_view_state_mut()
+                .map(|state| state.select_tab(tab))
+                .map(|_| Task::none())
+                .unwrap_or_else(Task::none),
+            SettingsMessage::Change(change) => self.apply_draft_change(change),
+            SettingsMessage::StartShortcutCapture(action) => self
+                .settings_view_state_mut()
+                .map(|state| state.begin_shortcut_capture(action))
+                .map(|_| Task::none())
+                .unwrap_or_else(Task::none),
+            SettingsMessage::CancelShortcutCapture => self
+                .settings_view_state_mut()
+                .map(|state| state.finish_shortcut_capture())
+                .map(|_| Task::none())
+                .unwrap_or_else(Task::none),
+            SettingsMessage::ChooseRecordingsFolder => self.choose_recordings_folder(),
+            SettingsMessage::RecordingsFolderChosen(Some(folder)) => {
+                self.apply_draft_change(SettingsChange::RecordingsFolder(folder))
             }
-        };
-
-        if let Err(validation_error) =
-            Self::validate_image_hosting_settings(settings_for_validation)
-        {
-            self.log_error_event(
-                "settings_validation_failed",
-                serde_json::json!({"error": validation_error}),
-            );
-            self.status = format!(
-                "{}{}",
-                global_constants::STATUS_SETTINGS_SAVE_FAILED_PREFIX,
-                validation_error
-            );
-            return Task::none();
+            SettingsMessage::RecordingsFolderChosen(None) => Task::none(),
+            SettingsMessage::Save => self.handle_save_settings(),
+            SettingsMessage::Cancel => self.close_settings_window(),
         }
+    }
 
-        if let Some(next_settings) = self.take_settings_draft() {
-            let hotkey_changed = next_settings.capture_hotkey != self.settings.capture_hotkey;
-            let search_provider_changed =
-                Self::should_rebuild_search_provider(&self.settings, &next_settings);
+    fn close_settings_window(&self) -> Task<OrchestratorMessage> {
+        self.settings_window_id
+            .map(window::close)
+            .unwrap_or_else(Task::none)
+    }
 
-            self.settings = next_settings.clone();
-
-            if let Err(save_error) = self.settings.save() {
-                self.log_error_event(
-                    "settings_save_failed",
-                    serde_json::json!({"error": save_error.to_string()}),
-                );
-                self.status = format!(
-                    "{}{}",
-                    global_constants::STATUS_SETTINGS_SAVE_FAILED_PREFIX,
-                    save_error
-                );
-            } else {
-                self.log_info_event("settings_saved", serde_json::json!({}));
-                self.status = global_constants::STATUS_SETTINGS_SAVED.to_string();
-
-                if search_provider_changed {
-                    let _ = self.rebuild_reverse_image_search_provider();
-                }
-
-                if hotkey_changed {
-                    self.log_info_event(
-                        "settings_hotkey_changed_restart_required",
-                        serde_json::json!({}),
-                    );
-                    return Task::done(OrchestratorMessage::RestartApp);
-                }
-            }
+    fn apply_draft_change(&mut self, change: SettingsChange) -> Task<OrchestratorMessage> {
+        let _ = self.log_debug_event(
+            EVENT_SETTINGS_DRAFT_CHANGED,
+            serde_json::json!({"change": format!("{:?}", change)}),
+        );
+        let _ = self.update_settings_draft(|draft| {
+            let _ = apply_settings_change(draft, change);
+        });
+        if let Some(state) = self.settings_view_state_mut() {
+            state.validation_error = None;
         }
-
-        if let Some(id) = self.settings_window_id {
-            return window::close(id);
-        }
-
         Task::none()
     }
 
-    fn rebuild_reverse_image_search_provider(&mut self) -> bool {
-        let image_hosting_service =
-            Arc::new(ImgbbImageHostingService::from_user_settings(&self.settings));
-        self.reverse_image_search_provider = Arc::new(GoogleLensSearchProvider::new(
-            image_hosting_service,
-            self.settings.image_search_url_template.clone(),
-        ));
-        self.log_info_event("search_provider_rebuilt", serde_json::json!({}));
+    fn choose_recordings_folder(&self) -> Task<OrchestratorMessage> {
+        let current_folder =
+            std::path::PathBuf::from(&self.get_settings_for_rendering().recording_save_location);
+        Task::perform(
+            async move {
+                rfd::AsyncFileDialog::new()
+                    .set_directory(current_folder)
+                    .pick_folder()
+                    .await
+                    .map(|handle| handle.path().to_path_buf())
+            },
+            |folder| OrchestratorMessage::Settings(SettingsMessage::RecordingsFolderChosen(folder)),
+        )
+    }
 
-        true
+    pub(super) fn handle_key_pressed_in_window(
+        &mut self,
+        window_id: Id,
+        modifiers: PressedModifiers,
+        physical_code: String,
+    ) -> Task<OrchestratorMessage> {
+        if self.handle_player_key(window_id, &physical_code) {
+            return Task::none();
+        }
+        if self.settings_window_id != Some(window_id) {
+            return Task::none();
+        }
+        let Some(action) = self
+            .settings_view_state_mut()
+            .and_then(|state| state.capturing_shortcut)
+        else {
+            return Task::none();
+        };
+        match build_accelerator(modifiers, &physical_code) {
+            Ok(accelerator) => {
+                let _ = self
+                    .settings_view_state_mut()
+                    .map(|state| state.finish_shortcut_capture());
+                self.apply_draft_change(SettingsChange::Shortcut(action, accelerator))
+            }
+            Err(outcome) => {
+                if let Some(state) = self.settings_view_state_mut() {
+                    state.shortcut_hint = Some(outcome);
+                }
+                Task::none()
+            }
+        }
     }
 }

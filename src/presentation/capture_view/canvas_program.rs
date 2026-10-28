@@ -1,7 +1,19 @@
 use super::*;
 use iced::mouse;
 use iced::widget::canvas;
-use iced::{Color, Point, Rectangle, Size};
+use iced::{Color, Rectangle};
+
+use crate::presentation::design::tokens::vibrant;
+
+mod masks;
+
+use masks::{fill_idle_mask, fill_mask_around_selection, fit_image_in_bounds};
+
+const SELECTION_MASK_COLOR: Color = Color::from_rgba(0.0, 0.0, 0.0, 0.5);
+const RECTANGLE_SELECTION_STROKE_WIDTH: f32 = 2.0;
+const FREEFORM_BOUNDING_BOX_ALPHA: f32 = 0.6;
+const FREEFORM_BOUNDING_BOX_STROKE_WIDTH: f32 = 1.0;
+const FREEFORM_PATH_STROKE_WIDTH: f32 = 3.0;
 
 impl canvas::Program<CaptureViewMessage> for CaptureView {
     type State = ();
@@ -53,108 +65,87 @@ impl canvas::Program<CaptureViewMessage> for CaptureView {
         bounds: Rectangle,
         _cursor: mouse::Cursor,
     ) -> Vec<canvas::Geometry<iced::Renderer>> {
-        let img_width = self.capture_buffer.width as f32;
-        let img_height = self.capture_buffer.height as f32;
-        let img_aspect = img_width / img_height;
-        let bounds_aspect = bounds.width / bounds.height;
-        let (display_width, display_height, offset_x, offset_y) = if img_aspect > bounds_aspect {
-            let display_width = bounds.width;
-            let display_height = bounds.width / img_aspect;
-            (
-                display_width,
-                display_height,
-                0.0,
-                (bounds.height - display_height) / 2.0,
-            )
-        } else {
-            let display_height = bounds.height;
-            let display_width = bounds.height * img_aspect;
-            (
-                display_width,
-                display_height,
-                (bounds.width - display_width) / 2.0,
-                0.0,
-            )
-        };
-
-        self.viewer_bounds.set(Rectangle::new(
-            Point::new(offset_x, offset_y),
-            Size::new(display_width, display_height),
+        self.viewer_bounds.set(fit_image_in_bounds(
+            self.capture_buffer.width as f32,
+            self.capture_buffer.height as f32,
+            bounds,
         ));
         let mut frame = canvas::Frame::new(renderer, bounds.size());
 
-        match self.draw_mode {
+        let _overlay_drawn = match self.draw_mode {
             DrawMode::Rectangle => self.draw_rectangle_overlay(&mut frame, bounds),
             DrawMode::Freeform => self.draw_freeform_overlay(&mut frame, bounds),
-        }
+        };
 
         vec![frame.into_geometry()]
     }
 }
 
 impl CaptureView {
-    fn draw_rectangle_overlay(&self, frame: &mut canvas::Frame<iced::Renderer>, bounds: Rectangle) {
-        match self.calculate_selection_rectangle() {
-            Some((top_left, size)) => {
-                self.fill_mask_around_selection(
-                    frame,
-                    bounds,
-                    top_left,
-                    size,
-                    Color::from_rgba(0.0, 0.0, 0.0, 0.5),
-                );
-                let selection_path = canvas::Path::rectangle(top_left, size);
-                frame.stroke(
-                    &selection_path,
-                    canvas::Stroke::default()
-                        .with_color(Color::from_rgb(0.3, 0.6, 1.0))
-                        .with_width(2.0),
-                );
-            }
-            None => frame.fill_rectangle(
-                Point::ORIGIN,
-                bounds.size(),
-                Color::from_rgba(0.0, 0.0, 0.0, 0.3),
-            ),
-        }
+    fn draw_rectangle_overlay(
+        &self,
+        frame: &mut canvas::Frame<iced::Renderer>,
+        bounds: Rectangle,
+    ) -> bool {
+        let Some((top_left, size)) = self.calculate_selection_rectangle() else {
+            return fill_idle_mask(frame, bounds);
+        };
+        let _mask_filled = fill_mask_around_selection(
+            frame,
+            bounds,
+            Rectangle::new(top_left, size),
+            SELECTION_MASK_COLOR,
+        );
+        frame.stroke(
+            &canvas::Path::rectangle(top_left, size),
+            canvas::Stroke::default()
+                .with_color(vibrant::VIOLET)
+                .with_width(RECTANGLE_SELECTION_STROKE_WIDTH),
+        );
+        true
     }
 
-    fn draw_freeform_overlay(&self, frame: &mut canvas::Frame<iced::Renderer>, bounds: Rectangle) {
+    fn draw_freeform_overlay(
+        &self,
+        frame: &mut canvas::Frame<iced::Renderer>,
+        bounds: Rectangle,
+    ) -> bool {
         if self.freeform_points.is_empty() {
-            frame.fill_rectangle(
-                Point::ORIGIN,
-                bounds.size(),
-                Color::from_rgba(0.0, 0.0, 0.0, 0.3),
-            );
-            return;
+            return fill_idle_mask(frame, bounds);
         }
+        let _bounding_box_drawn = self.draw_freeform_bounding_box(frame, bounds);
+        self.draw_freeform_path(frame)
+    }
 
-        match self.calculate_selection_rectangle() {
-            Some((top_left, size)) => {
-                self.fill_mask_around_selection(
-                    frame,
-                    bounds,
-                    top_left,
-                    size,
-                    Color::from_rgba(0.0, 0.0, 0.0, 0.5),
-                );
-                let bounding_box = canvas::Path::rectangle(top_left, size);
-                frame.stroke(
-                    &bounding_box,
-                    canvas::Stroke::default()
-                        .with_color(Color::from_rgba(0.3, 0.6, 1.0, 0.5))
-                        .with_width(1.0),
-                );
-            }
-            None => frame.fill_rectangle(
-                Point::ORIGIN,
-                bounds.size(),
-                Color::from_rgba(0.0, 0.0, 0.0, 0.3),
-            ),
-        }
+    fn draw_freeform_bounding_box(
+        &self,
+        frame: &mut canvas::Frame<iced::Renderer>,
+        bounds: Rectangle,
+    ) -> bool {
+        let Some((top_left, size)) = self.calculate_selection_rectangle() else {
+            return fill_idle_mask(frame, bounds);
+        };
+        let _mask_filled = fill_mask_around_selection(
+            frame,
+            bounds,
+            Rectangle::new(top_left, size),
+            SELECTION_MASK_COLOR,
+        );
+        frame.stroke(
+            &canvas::Path::rectangle(top_left, size),
+            canvas::Stroke::default()
+                .with_color(Color {
+                    a: FREEFORM_BOUNDING_BOX_ALPHA,
+                    ..vibrant::VIOLET
+                })
+                .with_width(FREEFORM_BOUNDING_BOX_STROKE_WIDTH),
+        );
+        true
+    }
 
+    fn draw_freeform_path(&self, frame: &mut canvas::Frame<iced::Renderer>) -> bool {
         if self.freeform_points.len() <= 1 {
-            return;
+            return false;
         }
         let mut path_builder = canvas::path::Builder::new();
         path_builder.move_to(self.freeform_points[0]);
@@ -164,42 +155,12 @@ impl CaptureView {
         if self.is_shape_closed && self.freeform_points.len() > 2 {
             path_builder.close();
         }
-        let path = path_builder.build();
         frame.stroke(
-            &path,
+            &path_builder.build(),
             canvas::Stroke::default()
-                .with_color(Color::from_rgb(0.3, 0.6, 1.0))
-                .with_width(3.0),
+                .with_color(vibrant::VIOLET)
+                .with_width(FREEFORM_PATH_STROKE_WIDTH),
         );
-    }
-
-    fn fill_mask_around_selection(
-        &self,
-        frame: &mut canvas::Frame<iced::Renderer>,
-        bounds: Rectangle,
-        top_left: Point,
-        size: Size,
-        overlay_color: Color,
-    ) {
-        frame.fill_rectangle(
-            Point::new(0.0, 0.0),
-            Size::new(bounds.width, top_left.y),
-            overlay_color,
-        );
-        frame.fill_rectangle(
-            Point::new(0.0, top_left.y + size.height),
-            Size::new(bounds.width, bounds.height - (top_left.y + size.height)),
-            overlay_color,
-        );
-        frame.fill_rectangle(
-            Point::new(0.0, top_left.y),
-            Size::new(top_left.x, size.height),
-            overlay_color,
-        );
-        frame.fill_rectangle(
-            Point::new(top_left.x + size.width, top_left.y),
-            Size::new(bounds.width - (top_left.x + size.width), size.height),
-            overlay_color,
-        );
+        true
     }
 }

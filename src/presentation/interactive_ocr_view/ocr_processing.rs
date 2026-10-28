@@ -1,16 +1,31 @@
 use super::*;
 
+const OCR_RESULT_IGNORED_EVENT: &str = "ocr_result_ignored_because_cancelled";
+const OCR_RESULT_APPLIED_EVENT: &str = "ocr_result_applied";
+const CHARACTER_POSITIONS_CALCULATED_EVENT: &str = "character_positions_calculated";
+const OCR_FAILED_EVENT: &str = "ocr_failed";
+
 impl InteractiveOcrView {
-    pub fn set_ocr_result(&mut self, result: OcrResult) {
+    pub fn set_ocr_result(&mut self, result: OcrResult) -> bool {
+        if self.ocr_state != OcrState::Processing {
+            log::info!(
+                "{} {}",
+                LOG_TAG,
+                serde_json::json!({"event": OCR_RESULT_IGNORED_EVENT})
+            );
+            return false;
+        }
         log::info!(
-            "[INTERACTIVE_OCR] Setting OCR result with {} text blocks",
-            result.text_blocks.len()
+            "{} {}",
+            LOG_TAG,
+            serde_json::json!({"event": OCR_RESULT_APPLIED_EVENT, "text_block_count": result.text_blocks.len()})
         );
 
         self.char_positions = Self::calculate_char_positions(&result);
         log::info!(
-            "[INTERACTIVE_OCR] Calculated {} character positions",
-            self.char_positions.len()
+            "{} {}",
+            LOG_TAG,
+            serde_json::json!({"event": CHARACTER_POSITIONS_CALCULATED_EVENT, "character_position_count": self.char_positions.len()})
         );
         self.ocr_result = Some(result);
         self.ocr_state = OcrState::Completed;
@@ -18,11 +33,17 @@ impl InteractiveOcrView {
         if !self.char_positions.is_empty() {
             self.show_help_hint = true;
         }
+        true
     }
 
-    pub fn set_ocr_failed(&mut self, error: String) {
-        log::error!("[INTERACTIVE_OCR] OCR failed: {}", error);
+    pub fn set_ocr_failed(&mut self, error: String) -> bool {
+        log::error!(
+            "{} {}",
+            LOG_TAG,
+            serde_json::json!({"event": OCR_FAILED_EVENT, "error": error})
+        );
         self.ocr_state = OcrState::Failed(error);
+        true
     }
 
     fn calculate_char_positions(result: &OcrResult) -> Vec<CharPosition> {

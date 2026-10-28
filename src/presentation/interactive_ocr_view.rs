@@ -1,72 +1,24 @@
 use iced::widget::{button, canvas, container, image, row, stack, text, text_input, tooltip};
-use iced::{Alignment, Border, Color, Element, Length, Point, Rectangle, Shadow, Vector};
+use iced::{Alignment, Border, Color, Element, Length, Point, Rectangle, Vector};
 
 mod ocr_overlay;
 mod ocr_processing;
 mod state;
+mod types;
 mod ui;
 mod update;
 use ocr_overlay::OcrOverlay;
 use state::{build_selected_text_with_layout, build_status_text};
+pub use types::*;
 
 use crate::core::models::{CaptureBuffer, OcrResult, ThemeMode};
 use crate::infrastructure::utils::copy_text_to_clipboard;
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum SearchState {
-    Idle,
-    UploadingImage,
-    Completed,
-    Failed(String),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum CopyState {
-    Idle,
-    Success,
-    Failed,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum ImageCopyState {
-    Idle,
-    Preparing,
-    Copying,
-    Success,
-    Failed(String),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum SaveState {
-    Idle,
-    Preparing,
-    Saving,
-    Success(String),
-    Failed(String),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum OcrState {
-    Idle,
-    Processing,
-    Failed(String),
-    Completed,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct CharPosition {
-    pub word_index: usize,
-    pub char_index: usize,
-    pub bounds: Rectangle,
-    pub character: char,
-}
-
-#[derive(Debug, Clone)]
-pub struct DrawStroke {
-    pub points: Vec<Point>,
-    pub color: Color,
-    pub width: f32,
-}
+const DEFAULT_DRAW_COLOR: Color = Color::from_rgb(1.0, 0.0, 0.0);
+const DEFAULT_DRAW_WIDTH: f32 = 3.0;
+const DEFAULT_DRAW_PANEL_POSITION: Point = Point::new(16.0, 60.0);
+const LOG_TAG: &str = "[INTERACTIVE_OCR]";
+const VIEW_CREATED_EVENT: &str = "view_created";
 
 pub struct InteractiveOcrView {
     image_handle: iced::widget::image::Handle,
@@ -93,12 +45,12 @@ pub struct InteractiveOcrView {
     draw_width: f32,
     draw_mode_enabled: bool,
     show_help_hint: bool,
-    toolbar_offset: Vector,
     ocr_state: OcrState,
     draw_panel_position: Point,
     draw_panel_is_dragging: bool,
     draw_panel_drag_offset: Option<Vector>,
 }
+
 #[derive(Debug, Clone)]
 pub enum InteractiveOcrMessage {
     Close,
@@ -135,7 +87,6 @@ pub enum InteractiveOcrMessage {
     ToggleDrawMode,
     SetDrawColor(Color),
     ClearDrawings,
-    ToggleToolbarPosition,
     StartOcr,
     CancelOcr,
     ClearOcrOverlay,
@@ -150,9 +101,9 @@ pub enum InteractiveOcrMessage {
 impl InteractiveOcrView {
     pub fn build(capture_buffer: CaptureBuffer, theme_mode: ThemeMode) -> Self {
         log::info!(
-            "[INTERACTIVE_OCR] Creating view for cropped image: {}x{}",
-            capture_buffer.width,
-            capture_buffer.height
+            "{} {}",
+            LOG_TAG,
+            serde_json::json!({"event": VIEW_CREATED_EVENT, "image_width": capture_buffer.width, "image_height": capture_buffer.height})
         );
 
         Self {
@@ -175,13 +126,12 @@ impl InteractiveOcrView {
             draw_strokes: Vec::new(),
             current_stroke_points: Vec::new(),
             is_drawing: false,
-            draw_color: Color::from_rgb(1.0, 0.0, 0.0),
-            draw_width: 3.0,
+            draw_color: DEFAULT_DRAW_COLOR,
+            draw_width: DEFAULT_DRAW_WIDTH,
             draw_mode_enabled: false,
             show_help_hint: false,
-            toolbar_offset: Vector::new(0.0, 0.0),
             ocr_state: OcrState::Idle,
-            draw_panel_position: Point::new(16.0, 60.0),
+            draw_panel_position: DEFAULT_DRAW_PANEL_POSITION,
             draw_panel_is_dragging: false,
             draw_panel_drag_offset: None,
         }
@@ -204,8 +154,9 @@ impl InteractiveOcrView {
         self.draw_strokes.clone()
     }
 
-    pub fn set_draw_strokes(&mut self, strokes: Vec<DrawStroke>) {
+    pub fn set_draw_strokes(&mut self, strokes: Vec<DrawStroke>) -> bool {
         self.draw_strokes = strokes;
+        true
     }
 
     fn get_selected_text_with_layout(&self) -> String {
