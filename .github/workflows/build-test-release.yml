@@ -181,6 +181,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
+      - name: Stamp release version
+        shell: bash
+        run: bash stamp-release-version.sh "${{ needs.create-release-tag.outputs.release_version }}"
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
@@ -285,7 +289,7 @@ jobs:
 
           $installerScript = @"
           #define MyAppName "Circle to Search PC"
-          #define MyAppVersion "1.0"
+          #define MyAppVersion "${{ needs.create-release-tag.outputs.release_version }}"
           #define MyAppPublisher "Circle to Search PC"
           #define MyAppExeName "circle-to-search-pc.exe"
 
@@ -346,6 +350,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Stamp release version
+        shell: bash
+        run: bash stamp-release-version.sh "${{ needs.create-release-tag.outputs.release_version }}"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
@@ -463,32 +471,30 @@ jobs:
             sha256 "${RELEASE_SHA256}"
 
             url "https://github.com/nkasozi/circle-to-search-pc/releases/download/v${RELEASE_VERSION}/${RELEASE_ASSET}"
-
             name "Circle to Search"
             desc "Circle-to-search for desktop — Google Lens search from any screen region"
             homepage "https://github.com/nkasozi/circle-to-search-pc"
 
+            depends_on :macos
+
             app "Circle to Search.app"
 
-            preflight do
-              system_command "/usr/bin/pkill",
-                             args: ["-f", "circle-to-search-pc"],
-                             must_succeed: false
-              system_command "/bin/rm",
-                             args: ["-rf", "/Applications/Circle to Search.app"],
-                             must_succeed: false
+            preflight_steps do
+              terminate_process "circle-to-search-pc", match: :full
+              remove "{{appdir}}/Circle to Search.app", recursive: true
             end
 
-            postflight do
-              system_command "/usr/bin/xattr",
-                             args: ["-cr", "/Applications/Circle to Search.app"],
-                             must_succeed: false
+            postflight_steps do
+              run "/usr/bin/xattr",
+                  args:           ["-cr", "{{appdir}}/Circle to Search.app"],
+                  must_succeed:   false,
+                  writable_paths: ["{{appdir}}/Circle to Search.app"]
             end
 
             zap trash: [
               "~/Library/Application Support/com.circle-to-search.app",
-              "~/Library/Preferences/com.circle-to-search.app.plist",
               "~/Library/Caches/com.circle-to-search.app",
+              "~/Library/Preferences/com.circle-to-search.app.plist",
             ]
           end
           EOF

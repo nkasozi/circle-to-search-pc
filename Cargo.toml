@@ -1,6 +1,6 @@
 [package]
 name = "circle-to-search-pc"
-version = "0.1.0"
+version = "0.1.4"
 edition = "2021"
 description = "Circle to Search for Desktop"
 license = "MIT"
@@ -77,7 +77,7 @@ objc2-avf-audio = "0.3"
 [package.metadata.bundle]
 name = "Circle to Search"
 identifier = "com.circle-to-search.app"
-version = "0.1.0"
+version = "0.1.4"
 category = "Utility"
 short_description = "Circle to Search for Desktop"
 long_description = "A desktop application that brings Google's Circle to Search feature to your Mac"
